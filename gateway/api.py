@@ -1,0 +1,113 @@
+import json
+from typing import Literal
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from . import bus, config
+from .registry import registry, envelope, TraderOffline, ResultTimeout
+
+
+def api_key(x_api_key: str = Header()):
+    if x_api_key != config.GATEWAY_API_KEY:
+        raise HTTPException(401)
+
+
+router = APIRouter(prefix="/accounts", dependencies=[Depends(api_key)])
+
+
+class OrderOpen(BaseModel):
+    symbol: str
+    side: Literal["buy", "sell"]
+    volume: float = Field(gt=0)
+    sl: float | None = None
+    tp: float | None = None
+    magic: int = Field(ge=0)
+    comment: str | None = Field(default=None, max_length=31)
+    deviation: int = 20
+
+
+class PositionClose(BaseModel):
+    volume: float | None = Field(default=None, gt=0)
+
+
+class PositionModify(BaseModel):
+    sl: float | None = None
+    tp: float | None = None
+
+
+class HistoryFill(BaseModel):
+    from_: float | None = Field(default=None, alias="from")
+
+
+async def run(acct, type_, payload, idem: str | None):
+    try:
+        return await registry.send_command(acct, type_, payload, id_=idem)
+    except TraderOffline:
+        raise HTTPException(503, "trader offline")
+    except ResultTimeout as e:
+        raise HTTPException(504, {"id": e.id, "detail": "no result within timeout"})
+
+
+@router.post("/{acct}/orders")
+async def open_order(acct: str, body: OrderOpen, idempotency_key: str | None = Header(default=None)):
+    return await run(acct, "order.open", body.model_dump(exclude_none=True), idempotency_key)
+
+
+@router.post("/{acct}/positions/{ticket}/close")
+async def close_position(acct: str, ticket: int, body: PositionClose | None = None,
+                         idempotency_key: str | None = Header(default=None)):
+    extra = body.model_dump(exclude_none=True) if body else {}
+    return await run(acct, "order.close", {"position": ticket, **extra}, idempotency_key)
+
+
+@router.patch("/{acct}/positions/{ticket}")
+async def modify_position(acct: str, ticket: int, body: PositionModify,
+                          idempotency_key: str | None = Header(default=None)):
+    return await run(acct, "order.modify", {"position": ticket, **body.model_dump(exclude_none=True)}, idempotency_key)
+
+
+@router.post("/{acct}/history/fill", status_code=202)
+async def history_fill(acct: str, body: HistoryFill | None = None):
+    a = registry.get(acct)
+    if a.trader is None:
+        raise HTTPException(503, "trader offline")
+    msg = envelope("history.fill", body.model_dump(exclude_none=True, by_alias=True) if body else {})
+    await a.trader.send_json(msg)  # no result awaited: data arrives via streamer `history` events
+    return {"id": msg["id"]}
+
+
+@router.get("/{acct}/state")
+async def state(acct: str):
+    s = await bus.get_state(acct)
+    if s is None:
+        raise HTTPException(404)
+    return s
+
+
+@router.get("")
+async def accounts():
+    return [{"id": a.account_id, "trader": a.trader is not None, "streamer": a.streamer is not None,
+             "alive": await bus.is_alive(a.account_id, "streamer")} for a in registry.agents.values()]
+
+
+def sse(event, data):
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.get("/{acct}/stream")
+async def stream(acct: str, request: Request, symbols: str = ""):
+    syms = [s for s in symbols.split(",") if s]
+
+    async def gen():
+        await registry.watch(acct, syms)
+        try:
+            s = await bus.get_state(acct)
+            yield sse("state", s) if s is not None else ": hello\n\n"
+            chans = [f"acct:{acct}", *[f"ticks:{acct}:{s}" for s in syms]]
+            async for event, data in bus.subscribe(chans):
+                yield ": ping\n\n" if event is None else sse(event, data)  # ping doubles as disconnect probe
+        finally:
+            await registry.unwatch(acct, syms)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
