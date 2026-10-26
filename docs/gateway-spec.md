@@ -88,7 +88,7 @@ gateway/
 
 Phụ thuộc: `fastapi`, `uvicorn[standard]` (đã gồm `websockets`), `redis>=5`. Không thêm gì khác.
 
-Chạy: `uvicorn gateway.main:app --host 0.0.0.0 --port 8000` sau TLS terminator (Caddy/nginx). Một worker duy nhất, vì registry nằm trong RAM.
+Chạy: `uvicorn gateway.main:app --host 0.0.0.0 --port 8000` sau một TLS terminator bất kỳ. Một worker duy nhất, vì registry nằm trong RAM.
 
 ## 6. Skeleton
 

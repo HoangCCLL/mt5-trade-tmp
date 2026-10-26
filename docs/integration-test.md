@@ -10,7 +10,7 @@ alias gw='curl -s -H "X-Api-Key: $KEY" -H "Content-Type: application/json"'
 
 ## 0. Local (đã xong)
 - `uv run pytest` → 24 passed.
-- `docker compose up` + agent giả qua Caddy: order `done`, SSE có tick.
+- `docker compose up` + agent giả: order `done`, SSE có tick.
 
 ## 1. Host staging: TLS, token, firewall
 

@@ -1,16 +1,15 @@
 # Deploy
 
-## Host (BE): gateway + Redis + Caddy
+## Host (BE): gateway + Redis
 
 ```bash
-cp .env.example .env            # điền DOMAIN, GATEWAY_API_KEY, AGENT_TOKENS
+cp .env.example .env            # GATEWAY_API_KEY, AGENT_TOKENS, GATEWAY_BIND
 docker compose up -d --build
-curl https://$DOMAIN/healthz    # {"ok":true}
-curl -H "X-Api-Key: $GATEWAY_API_KEY" https://$DOMAIN/accounts
+curl http://<GATEWAY_BIND>/healthz   # {"ok":true}
+curl -H "X-Api-Key: $GATEWAY_API_KEY" http://<GATEWAY_BIND>/accounts
 ```
 
-- `DOMAIN` trỏ DNS về host, mở port 80/443. Caddy tự lấy cert Let's Encrypt.
-- Không có domain (LAN/test): `DOMAIN=:80`, agent dùng `GATEWAY_URL=ws://<host-ip>`.
+- Gateway nghe HTTP thường tại `GATEWAY_BIND`. TLS/reverse proxy nằm ngoài phạm vi repo này; proxy phía trước cần cho phép WebSocket upgrade, không buffer SSE, và read timeout dài cho kết nối giữ lâu.
 - Gateway chạy **một** worker uvicorn. Không scale `gateway` lên nhiều replica, registry nằm trong RAM.
 - Redis chỉ nghe trong network của compose. Snapshot 60 s, mất dữ liệu khi restart là chấp nhận được (agent gửi lại state trong 30 s).
 - Log: `docker compose logs -f gateway`.

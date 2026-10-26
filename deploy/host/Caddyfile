@@ -1,8 +1,0 @@
-{$DOMAIN} {
-    reverse_proxy gateway:8000 {
-        flush_interval -1          # SSE: push every event immediately
-        transport http {
-            read_timeout 0         # long-lived WS and SSE
-        }
-    }
-}

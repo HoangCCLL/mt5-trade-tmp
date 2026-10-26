@@ -38,6 +38,6 @@ Chạy dưới NSSM/Task Scheduler cho auto-start. Chỉ cần copy thư mục `
 gateway/   FastAPI: WS cho agent, HTTP + SSE cho web/browser, Redis state + pubsub
 agent/     trader.py (lệnh), streamer.py (state/tick/deal), common.py (WS link), mt5_fake.py (simulator)
 tests/     conftest.py (server fixture + FakeAgent), test_gateway.py, test_agent.py
-deploy/    host/Caddyfile, vps/install.ps1 + run-agent.ps1 (Windows scheduled tasks)
+deploy/    vps/install.ps1 + run-agent.ps1 (Windows scheduled tasks)
 docs/      mt5-agent-spec.md, gateway-spec.md, deploy.md
 ```
