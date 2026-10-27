@@ -20,6 +20,9 @@ class OrderOpen(BaseModel):
     symbol: str
     side: Literal["buy", "sell"]
     volume: float = Field(gt=0)
+    type: Literal["market", "limit"] = "market"   # limit: Binance resting order (MT5 agent ignores it for now)
+    price: float | None = None
+    reduce_only: bool | None = None
     sl: float | None = None
     tp: float | None = None
     magic: int = Field(ge=0)
@@ -29,6 +32,11 @@ class OrderOpen(BaseModel):
 
 class PositionClose(BaseModel):
     volume: float | None = Field(default=None, gt=0)
+
+
+class OrderCancel(BaseModel):
+    symbol: str
+    order: int
 
 
 class PositionModify(BaseModel):
@@ -61,15 +69,21 @@ async def open_order(acct: str, body: OrderOpen, idempotency_key: str | None = H
     return await run(acct, "order.open", body.model_dump(exclude_none=True), idempotency_key)
 
 
+@router.post("/{acct}/orders/cancel")
+async def cancel_order(acct: str, body: OrderCancel, idempotency_key: str | None = Header(default=None)):
+    """Cancel a resting order (Binance). MT5 pending orders are not supported yet."""
+    return await run(acct, "order.cancel", body.model_dump(), idempotency_key)
+
+
 @router.post("/{acct}/positions/{ticket}/close")
-async def close_position(acct: str, ticket: int, body: PositionClose | None = None,
+async def close_position(acct: str, ticket: str, body: PositionClose | None = None,
                          idempotency_key: str | None = Header(default=None)):
     extra = body.model_dump(exclude_none=True) if body else {}
     return await run(acct, "order.close", {"position": ticket, **extra}, idempotency_key)
 
 
 @router.patch("/{acct}/positions/{ticket}")
-async def modify_position(acct: str, ticket: int, body: PositionModify,
+async def modify_position(acct: str, ticket: str, body: PositionModify,
                           idempotency_key: str | None = Header(default=None)):
     return await run(acct, "order.modify", {"position": ticket, **body.model_dump(exclude_none=True)}, idempotency_key)
 

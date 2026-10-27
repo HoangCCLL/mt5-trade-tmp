@@ -7,3 +7,4 @@ deploy/vps/agent.env
 build/
 dist/
 *.spec
+deploy/binance/agent.env

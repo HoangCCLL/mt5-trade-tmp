@@ -1,0 +1,13 @@
+# One VPS = one Binance Futures account: two containers from one image, settings in agent.env.
+# Image is built by CI (.github/workflows/build-binance-image.yml). Update: docker compose pull && docker compose up -d
+services:
+  trader:
+    image: ghcr.io/hoangccll/mt5-trade-tmp/binance-agent:latest
+    command: ["trader"]
+    env_file: agent.env
+    restart: unless-stopped
+  streamer:
+    image: ghcr.io/hoangccll/mt5-trade-tmp/binance-agent:latest
+    command: ["streamer"]
+    env_file: agent.env
+    restart: unless-stopped

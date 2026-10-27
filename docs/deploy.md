@@ -90,6 +90,21 @@ Giới hạn đo được dưới Wine (2026-10-27): trong lúc `order_send` ch�
 
 Vận hành: `journalctl --user -fu mt5-trader`, log file `~/.mt5/drive_c/mt5agent/logs/`. Cập nhật exe: tải đè rồi `systemctl --user restart mt5-trader mt5-streamer`. Dùng xrdp thì chỉ đóng cửa sổ RDP (disconnect), không Log Out; sau reboot phải RDP vào một lần để có lại display `:10`. Muốn tự lên sau reboot: autologin `:0` + x11vnc và đổi `DISPLAY=:0` trong ba unit.
 
+## VPS Binance Futures: Docker, một VPS = một account
+
+Không có terminal; agent nói chuyện thẳng với Binance nên chạy trên bất kỳ Linux nào có Docker. Nên đặt VPS gần AWS Tokyo (ap-northeast-1).
+
+```bash
+mkdir -p ~/binance-agent && cd ~/binance-agent
+curl -fsSLO https://raw.githubusercontent.com/HoangCCLL/mt5-trade-tmp/main/deploy/binance/docker-compose.yml
+curl -fsSL -o agent.env https://raw.githubusercontent.com/HoangCCLL/mt5-trade-tmp/main/deploy/binance/agent.env.example
+nano agent.env            # GATEWAY_URL, ACCOUNT_ID, AGENT_TOKEN, BINANCE_API_KEY/SECRET, BINANCE_TESTNET
+chmod 600 agent.env
+docker compose up -d && docker compose logs -f
+```
+
+Trên gateway thêm account vào `AGENT_TOKENS` rồi `docker compose up -d --build gateway`. Cập nhật agent: `docker compose pull && docker compose up -d`. Image build tự động khi push `main` (`build-binance-image`). API key Binance: bật Futures, tắt Withdraw, giới hạn IP về IP của VPS. Spec: `docs/binance-agent-spec.md`.
+
 ## Checklist go-live một account
 
 - [ ] `/accounts` thấy `alive:true` và `/accounts/<id>/state` có `connected:true`.

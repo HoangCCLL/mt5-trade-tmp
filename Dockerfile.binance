@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /bin/uv
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+COPY agent/__init__.py agent/link.py ./agent/
+COPY binance ./binance
+# role comes from the compose command: trader | streamer
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "binance"]

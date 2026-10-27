@@ -1,7 +1,7 @@
 """Streamer: polls MT5 state/ticks/deals and pushes them to the gateway. Never trades."""
 import asyncio, logging, os, time
 from concurrent.futures import ThreadPoolExecutor
-from .common import Link, heartbeat, init_mt5, log
+from .common import Link, heartbeat, init_mt5, log, mt5_connected
 from .mt5_api import mt5
 
 READ_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="read")
@@ -75,7 +75,7 @@ async def run(url, token, state_period=0.25, tick_period=0.1, deal_period=1.0):
 
     await asyncio.gather(link.run(on_message), poll_state(link.emit, state_period),
                          poll_ticks(link.emit, subscribed, tick_period), poll_deals(link.emit, deal_period),
-                         heartbeat(link.emit, lambda: {"subscribed": sorted(subscribed)}))
+                         heartbeat(link.emit, lambda: {"connected": mt5_connected(), "subscribed": sorted(subscribed)}))
 
 
 if __name__ == "__main__":

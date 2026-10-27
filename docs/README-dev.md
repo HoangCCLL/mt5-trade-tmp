@@ -38,6 +38,7 @@ Chạy dưới NSSM/Task Scheduler cho auto-start. Chỉ cần copy thư mục `
 gateway/   FastAPI: WS cho agent, HTTP + SSE cho web/browser, Redis state + pubsub
 agent/     trader.py (lệnh), streamer.py (state/tick/deal), common.py (WS link), mt5_fake.py (simulator)
 tests/     conftest.py (server fixture + FakeAgent), test_gateway.py, test_agent.py
-deploy/    vps/build.ps1 (PyInstaller -> mt5agent.exe), vps/agent.env.example
+binance/   Binance Futures agent: exchange.py (REST+WS), fake.py, trader.py, streamer.py; BINANCE_FAKE=1 cho test
+deploy/    vps/build.ps1 (PyInstaller -> mt5agent.exe), vps/agent.env.example, binance/docker-compose.yml
 docs/      mt5-agent-spec.md, gateway-spec.md, deploy.md
 ```

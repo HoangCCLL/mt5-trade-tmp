@@ -2,7 +2,7 @@
 import asyncio, logging, os, time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from .common import Link, heartbeat, init_mt5, log
+from .common import Link, heartbeat, init_mt5, log, mt5_connected
 from .mt5_api import mt5
 
 now = time.time  # patched in tests; TTL is checked in gateway time via the skew measured from `hello`
@@ -163,7 +163,7 @@ async def run(url, token, order_timeout=30.0, ttl=5.0):
         await handle_command(msg, link.emit, ttl, order_timeout, skew=clock["skew"])
 
     await asyncio.gather(link.run(on_message),
-                         heartbeat(link.emit, lambda: {"pool_busy": TRADE_POOL._work_queue.qsize(),
+                         heartbeat(link.emit, lambda: {"connected": mt5_connected(), "pool_busy": TRADE_POOL._work_queue.qsize(),
                                                        "clock_skew": round(clock["skew"], 3), "t": now()}))  # t echoed in hello
 
 
