@@ -166,3 +166,12 @@ async def test_trader_reports_error_when_execute_raises(server, http, mt5, trade
     r = await http.post("/accounts/A1/orders", json=ORDER)
     assert r.status_code == 200 and r.json()["status"] == "error" and "boom" in r.json()["comment"]
     assert time.time() - t0 < 0.9  # not the gateway RESULT_TIMEOUT
+
+
+async def test_streamer_emits_deal_when_broker_clock_is_ahead(server, http, mt5, streamer):
+    mt5.clock_offset = 3 * 3600  # broker server time (e.g. EET) vs VPS/UTC clock
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "deal" for e, _ in g)))
+    await asyncio.sleep(0.1)
+    mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": "EURUSD", "volume": 0.2,
+                    "type": mt5.ORDER_TYPE_BUY, "price": 1.1, "magic": 9})
+    assert dict(await task)["deal"]["magic"] == 9

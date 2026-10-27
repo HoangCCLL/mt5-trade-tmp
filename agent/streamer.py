@@ -1,7 +1,6 @@
 """Streamer: polls MT5 state/ticks/deals and pushes them to the gateway. Never trades."""
 import asyncio, logging, os, time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
 from .common import Link, heartbeat, init_mt5, log
 from .mt5_api import mt5
 
@@ -44,18 +43,19 @@ async def poll_ticks(emit, subscribed: set, period):
 
 
 async def poll_deals(emit, period):
-    loop, seen = asyncio.get_running_loop(), {}
-    since = datetime.now() - timedelta(seconds=60)
+    """Deal times come back in the broker's server clock, not UTC, so the query window is int epochs with a
+    one-day margin on each side and dedupe is by ticket; the first poll only seeds `seen` (history.fill covers the past)."""
+    loop, seen, since, first = asyncio.get_running_loop(), {}, int(time.time()) - 86400, True
     while True:
-        deals = await loop.run_in_executor(READ_POOL, mt5.history_deals_get, since, datetime.now() + timedelta(seconds=60))
+        deals = await loop.run_in_executor(READ_POOL, mt5.history_deals_get, since, int(time.time()) + 86400)
         for d in deals or ():
             if d.ticket not in seen:
-                seen[d.ticket] = time.time()
-                emit("deal", d._asdict())
-                since = max(since, datetime.fromtimestamp(d.time) - timedelta(seconds=5))
-        cutoff = time.time() - 300
-        for t in [t for t, at in seen.items() if at < cutoff]:
-            del seen[t]
+                seen[d.ticket] = int(d.time)
+                if not first:
+                    emit("deal", d._asdict())
+                since = max(since, int(d.time) - 5)
+        first = False
+        seen = {t: at for t, at in seen.items() if at >= since}
         await asyncio.sleep(period)
 
 

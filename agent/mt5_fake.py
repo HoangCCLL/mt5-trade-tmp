@@ -22,6 +22,7 @@ SendResult = namedtuple("SendResult", "retcode deal order volume price comment r
 
 calls: Counter = Counter()
 order_send_delay = 0.0
+clock_offset = 0.0  # seconds the simulated broker clock is ahead of the local clock
 market_closed = False
 freeze_ticks = False
 _positions: dict[int, Position] = {}
@@ -32,9 +33,9 @@ _seq = 0
 
 
 def reset():
-    global order_send_delay, market_closed, freeze_ticks, _seq
+    global order_send_delay, market_closed, freeze_ticks, clock_offset, _seq
     calls.clear(); _positions.clear(); _deals.clear(); _prices.clear(); _last_tick.clear()
-    order_send_delay, market_closed, freeze_ticks, _seq = 0.0, False, False, 0
+    order_send_delay, market_closed, freeze_ticks, clock_offset, _seq = 0.0, False, False, 0.0, 0
 
 
 def _next():
@@ -84,7 +85,7 @@ def symbol_info_tick(symbol):
     if freeze_ticks and symbol in _last_tick:
         return _last_tick[symbol]
     _prices[symbol] = _mid(symbol) + random.uniform(-0.00005, 0.00005)
-    now = time.time()
+    now = time.time() + clock_offset  # broker server clock, not UTC
     t = Tick(time=int(now), bid=round(_prices[symbol] - 0.00005, 5), ask=round(_prices[symbol] + 0.00005, 5),
              last=0.0, volume=0, time_msc=int(now * 1000))
     _last_tick[symbol] = t
@@ -125,7 +126,7 @@ def order_send(request):
         time.sleep(order_send_delay)
     if market_closed:
         return SendResult(TRADE_RETCODE_MARKET_CLOSED, 0, 0, 0.0, 0.0, "Market closed", 0)
-    now = time.time()
+    now = time.time() + clock_offset  # broker server clock, not UTC
     if request["action"] == TRADE_ACTION_SLTP:
         p = _positions[request["position"]]
         _positions[p.ticket] = p._replace(sl=request.get("sl", 0.0), tp=request.get("tp", 0.0))
