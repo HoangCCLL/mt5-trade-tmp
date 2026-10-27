@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-shot setup on a clean Xubuntu VPS: Wine + MT5 terminal (official MetaQuotes script), the agent exe,
 # and two systemd user services. Run as the trade user INSIDE the graphical session (the MT5 installer is a GUI):
-#   GATEWAY_URL=wss://host ACCOUNT_ID=demo2 AGENT_TOKEN=... bash install-xubuntu.sh
+#   GATEWAY_URL=wss://host ACCOUNT_ID=demo2 AGENT_TOKEN=... MT5_LOGIN=123 MT5_PASSWORD=... MT5_SERVER=Broker-Demo bash install-xubuntu.sh
+# MT5_* make the agent log the terminal in itself (headless); without them log in once in the terminal GUI and save the password.
 set -euo pipefail
 : "${GATEWAY_URL:?}" "${ACCOUNT_ID:?}" "${AGENT_TOKEN:?}"
 EXE_URL=${EXE_URL:-https://github.com/HoangCCLL/mt5-trade-tmp/releases/download/latest/mt5agent.exe}
@@ -15,11 +16,24 @@ export DISPLAY XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}
 echo ">> using DISPLAY=$DISPLAY"
 TERMINAL="$PREFIX/drive_c/Program Files/MetaTrader 5/terminal64.exe"
 
-sudo apt-get update -qq && sudo apt-get install -y -qq curl
+# Same steps as MetaQuotes' mt5ubuntu.sh, but non-interactive and fetching the installer from download.metatrader.com
+# (download.mql5.com served an expired certificate on 2026-10-27). WebView2 is skipped: only the built-in browser needs it.
+SETUP_URL=${SETUP_URL:-https://download.metatrader.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe}
+if ! command -v wine >/dev/null; then
+    echo ">> installing WineHQ stable"
+    sudo dpkg --add-architecture i386
+    sudo mkdir -pm755 /etc/apt/keyrings
+    sudo wget -qO /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+    codename=$(lsb_release -cs)
+    sudo wget -qNP /etc/apt/sources.list.d/ "https://dl.winehq.org/wine-builds/ubuntu/dists/$codename/winehq-$codename.sources"
+    sudo apt-get update -qq && sudo apt-get install -y -qq --install-recommends winehq-stable curl
+fi
 if [ ! -f "$TERMINAL" ]; then
-    echo ">> installing Wine + MetaTrader 5 (GUI installer will open: click through, then log in and close it)"
-    curl -fsSL https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5ubuntu.sh -o /tmp/mt5ubuntu.sh
-    bash /tmp/mt5ubuntu.sh
+    echo ">> creating prefix $PREFIX (win10) and installing MetaTrader 5 silently"
+    WINEPREFIX=$PREFIX WINEDEBUG=-all winecfg -v=win10
+    curl -fsSL "$SETUP_URL" -o /tmp/mt5setup.exe
+    WINEPREFIX=$PREFIX WINEDEBUG=-all wine /tmp/mt5setup.exe /auto || true
+    for i in $(seq 1 60); do [ -f "$TERMINAL" ] && break; sleep 5; done
 fi
 [ -f "$TERMINAL" ] || { echo "terminal64.exe not found at $TERMINAL"; exit 1; }
 
@@ -31,6 +45,9 @@ GATEWAY_URL=$GATEWAY_URL
 ACCOUNT_ID=$ACCOUNT_ID
 AGENT_TOKEN=$AGENT_TOKEN
 MT5_PATH=C:\\Program Files\\MetaTrader 5\\terminal64.exe
+MT5_LOGIN=${MT5_LOGIN:-}
+MT5_PASSWORD=${MT5_PASSWORD:-}
+MT5_SERVER=${MT5_SERVER:-}
 ENV
 
 mkdir -p ~/.config/systemd/user
