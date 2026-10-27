@@ -24,22 +24,38 @@ Chuẩn bị một lần trên VPS:
 3. Windows Update: đặt Active Hours phủ giờ thị trường, hoặc chấp nhận reboot cuối tuần (task tự chạy lại sau logon).
 4. Firewall chỉ cần outbound 443 tới gateway. Không mở inbound.
 
-Cài agent (PowerShell, user trade, từ thư mục repo đã copy sang VPS):
+Build exe: GitHub Actions `build-agent` chạy khi push `main` (release `latest`, ghi đè) hoặc tag `v*` (release theo version). Tải thẳng trên VPS:
 
-```powershell
-Copy-Item deploy\vps\agent.env.example deploy\vps\agent.env   # điền GATEWAY_URL, ACCOUNT_ID, AGENT_TOKEN, MT5_*
-.\deploy\vps\install.ps1
-Get-Content C:\mt5agent\logs\trader.log -Wait
+```
+mkdir C:\mt5agent & cd C:\mt5agent
+curl.exe -L -o mt5agent.exe https://github.com/HoangCCLL/mt5-trade-tmp/releases/download/latest/mt5agent.exe
 ```
 
-Script làm gì: cài Python 3.11 qua winget nếu thiếu, `pip install MetaTrader5 websockets`, copy `agent/` + `run-agent.ps1` + `agent.env` vào `C:\mt5agent`, đăng ký hai scheduled task `mt5-trader`, `mt5-streamer` chạy at-logon trong phiên tương tác với restart vô hạn, resync NTP, start luôn.
+Build tay khi cần (máy Windows bất kỳ): `powershell -ExecutionPolicy Bypass -File deploy\vps\build.ps1` → `dist\mt5agent.exe`.
 
-Cập nhật code: chạy lại `install.ps1`. Gỡ: `install.ps1 -Uninstall`.
+Cài trên VPS: chỉ cần copy hai file, không cần Python, không cần script.
+
+```
+C:\mt5agent\mt5agent.exe
+C:\mt5agent\agent.env        # từ deploy\vps\agent.env.example, điền GATEWAY_URL, ACCOUNT_ID, AGENT_TOKEN, MT5_PATH
+```
+
+Đăng ký chạy at-logon (cmd hoặc PowerShell, user trade; `schtasks` không dính execution policy):
+
+```
+schtasks /Create /F /TN mt5-trader   /SC ONLOGON /RL LIMITED /TR "C:\mt5agent\mt5agent.exe trader"
+schtasks /Create /F /TN mt5-streamer /SC ONLOGON /RL LIMITED /TR "C:\mt5agent\mt5agent.exe streamer"
+schtasks /Run /TN mt5-trader & schtasks /Run /TN mt5-streamer
+```
+
+Exe tự đọc `agent.env` cạnh nó, ghi log vào `C:\mt5agent\logs\<role>.log` (xoay ở 20 MB) và tự restart sau 5 s nếu thoát, nên task không cần cấu hình restart. Chạy tay để debug: `mt5agent.exe trader` trong cửa sổ cmd.
+
+Cập nhật: thay `mt5agent.exe`, `schtasks /End` rồi `schtasks /Run`. Gỡ: `schtasks /Delete /F /TN mt5-trader` (và streamer).
 
 Kiểm tra sau khi cài:
 
 ```powershell
-Get-ScheduledTask mt5-* | ft TaskName, State        # Running
+schtasks /Query /TN mt5-trader & schtasks /Query /TN mt5-streamer   # Running
 # trên host:
 curl -H "X-Api-Key: ..." https://$DOMAIN/accounts   # trader:true, streamer:true, alive:true
 ```

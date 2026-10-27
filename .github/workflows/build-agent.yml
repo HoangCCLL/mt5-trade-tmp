@@ -1,0 +1,29 @@
+# Builds mt5agent.exe on every push to main (release tag "latest", rolling) and on tags v* (versioned release).
+# VPS download: https://github.com/HoangCCLL/mt5-trade-tmp/releases/download/latest/mt5agent.exe
+name: build-agent
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["docs/**", "gateway/**", "tests/test_gateway.py", "docker-compose.yml", "Dockerfile"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: powershell -ExecutionPolicy Bypass -File deploy\vps\build.ps1
+      - name: release
+        shell: bash
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            gh release create "${{ github.ref_name }}" dist/mt5agent.exe --generate-notes
+          else
+            gh release delete latest --yes --cleanup-tag || true
+            gh release create latest dist/mt5agent.exe --prerelease --title "latest (${GITHUB_SHA::7})" --notes "built from $GITHUB_SHA"
+          fi

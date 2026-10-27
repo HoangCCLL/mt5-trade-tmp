@@ -71,12 +71,12 @@ Nếu streamer crash hoặc trả `None` liên tục trong lúc trader gửi l�
 | Đóng terminal MT5 bằng tay | `state.connected:false` trong ≤ 1 s, `heartbeat` vẫn chạy; mở lại terminal → `connected:true` |
 
 ## 6. Cài scheduled task + reboot
-```powershell
-.\deploy\vps\install.ps1
-Get-ScheduledTask mt5-* | ft TaskName, State     # Running
-Restart-Computer
 ```
-Sau khi VPS lên và auto-logon: `/accounts` alive trong < 2 phút, log `C:\mt5agent\logs\*.log` có dòng `[supervisor] starting`. Kill `python.exe` bằng Task Manager → supervisor restart sau 5 s.
+schtasks /Create /F /TN mt5-trader   /SC ONLOGON /RL LIMITED /TR "C:\mt5agent\mt5agent.exe trader"
+schtasks /Create /F /TN mt5-streamer /SC ONLOGON /RL LIMITED /TR "C:\mt5agent\mt5agent.exe streamer"
+shutdown /r /t 0
+```
+Sau khi VPS lên và auto-logon: `/accounts` alive trong < 2 phút, log `C:\mt5agent\logs\*.log` có dòng kết nối. Kill `mt5agent.exe` bằng Task Manager → task không tự chạy lại (chỉ at-logon), nên kiểm tra thay bằng: rút mạng 30 s → exe tự reconnect; tắt terminal MT5 → exe log lỗi, tự thử lại sau 5 s.
 
 ## 7. Cuối tuần
 Thứ Bảy: `gw ... /orders` → `status:error retcode:10018`. `/state` `connected` phản ánh đúng việc broker bảo trì. Tick: SSE không spam, log streamer không đầy.
