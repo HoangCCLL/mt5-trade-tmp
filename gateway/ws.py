@@ -1,3 +1,4 @@
+import hmac
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from . import bus, config
@@ -42,7 +43,7 @@ HANDLERS = {"trader": on_trader, "streamer": on_streamer}
 @router.websocket("/agents/{account_id}/{role}")
 async def agent_ws(ws: WebSocket, account_id: str, role: str):
     expected = config.AGENT_TOKENS.get(account_id)
-    if role not in HANDLERS or expected is None or ws.headers.get("authorization") != f"Bearer {expected}":
+    if role not in HANDLERS or expected is None or not hmac.compare_digest(ws.headers.get("authorization", ""), f"Bearer {expected}"):
         await ws.close(code=4401)
         return
     await ws.accept()

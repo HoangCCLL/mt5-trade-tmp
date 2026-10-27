@@ -1,3 +1,4 @@
+import hmac
 import json
 from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -8,7 +9,7 @@ from .registry import registry, envelope, TraderOffline, ResultTimeout
 
 
 def api_key(x_api_key: str = Header()):
-    if x_api_key != config.GATEWAY_API_KEY:
+    if not hmac.compare_digest(x_api_key or "", config.GATEWAY_API_KEY):
         raise HTTPException(401)
 
 
