@@ -21,3 +21,17 @@ def test_load_env_missing_file_is_noop(tmp_path):
 
 def test_roles():
     assert set(ROLES) == {"trader", "streamer"}
+
+
+def test_timecheck_measures_broker_clock_offset(monkeypatch):
+    monkeypatch.setenv("MT5_FAKE", "1")
+    from agent.mt5_api import mt5
+    from agent.timecheck import timecheck
+    mt5.reset()
+    mt5.clock_offset = 3 * 3600
+    mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": "EURUSD", "volume": 0.1, "type": mt5.ORDER_TYPE_BUY,
+                    "price": 1.1, "magic": 1})
+    r = timecheck("EURUSD")
+    assert abs(r["tick_offset_s"] - 10800) < 5
+    assert abs(r["deal_offset_s"] - 10800) < 5
+    assert r["deal_in_naive_60s_window"] is False and r["deal_in_int_1day_window"] is True

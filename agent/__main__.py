@@ -29,10 +29,17 @@ def load_env(path):
 
 def main():
     role = sys.argv[1] if len(sys.argv) > 1 else ""
-    if role not in ROLES:
-        sys.exit(f"usage: {Path(sys.argv[0]).name} trader|streamer")
+    if role not in ROLES + ("timecheck",):
+        sys.exit(f"usage: {Path(sys.argv[0]).name} trader|streamer|timecheck [SYMBOL]")
     root = base_dir()
     load_env(root / "agent.env")
+    if role == "timecheck":
+        import json
+        from agent.common import init_mt5
+        from agent.timecheck import timecheck
+        init_mt5()
+        print(json.dumps(timecheck(*sys.argv[2:3]), indent=1))
+        return
     (root / "logs").mkdir(exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=[
         logging.StreamHandler(),
