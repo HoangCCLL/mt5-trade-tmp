@@ -1,5 +1,5 @@
 """Binance streamer: account state (REST + user stream), deals, on-demand bookTicker ticks. Never trades."""
-import asyncio, json, logging, time
+import asyncio, json, logging, os, time
 from agent.link import Link, heartbeat, log
 
 KEEPALIVE = 30 * 60
@@ -14,12 +14,16 @@ class State:
 
     def __init__(self, ex):
         self.ex, self.wallet, self.available, self.margin = ex, 0.0, 0.0, 0.0
+        self.asset = os.environ.get("BINANCE_ASSET") or None   # margin asset to report; default: the one with money in it
         self.positions: dict[str, dict] = {}   # symbol -> {amt, entry, mark, upnl, leverage}
         self.orders: dict[int, dict] = {}      # NEW orders
         self.connected = False
 
     async def reconcile(self):
-        bal = next((b for b in await self.ex.balance() if b["asset"] == "USDT"), None)
+        balances = await self.ex.balance()
+        if self.asset is None and balances:
+            self.asset = max(balances, key=lambda b: _f(b["balance"]))["asset"]
+        bal = next((b for b in balances if b["asset"] == self.asset), None)
         if bal:
             self.wallet, self.available = _f(bal["balance"]), _f(bal["availableBalance"])
         self.positions = {p["symbol"]: {"amt": _f(p["positionAmt"]), "entry": _f(p["entryPrice"]), "mark": _f(p.get("markPrice")),
@@ -33,7 +37,7 @@ class State:
         """Returns a deal dict when the event is a fill, else None."""
         if ev.get("e") == "ACCOUNT_UPDATE":
             for b in ev["a"].get("B", []):
-                if b["a"] == "USDT":
+                if b["a"] == self.asset:
                     self.wallet = _f(b["wb"])
             for p in ev["a"].get("P", []):
                 amt = _f(p["pa"])
@@ -66,7 +70,7 @@ class State:
         upnl = sum(p["upnl"] for p in self.positions.values())
         return {
             "account": {"login": self.ex.key[:6], "server": "binance-futures" + ("-testnet" if getattr(self.ex, "testnet", False) else ""),
-                        "currency": "USDT", "balance": self.wallet, "equity": self.wallet + upnl, "margin": self.margin,
+                        "currency": self.asset or "USDT", "balance": self.wallet, "equity": self.wallet + upnl, "margin": self.margin,
                         "margin_free": self.available, "profit": upnl},
             "positions": [{"ticket": s, "symbol": s, "type": 0 if p["amt"] > 0 else 1, "volume": abs(p["amt"]), "price_open": p["entry"],
                            "price_current": p["mark"], "profit": p["upnl"], "sl": algos.get(s, {}).get("sl"), "tp": algos.get(s, {}).get("tp"),

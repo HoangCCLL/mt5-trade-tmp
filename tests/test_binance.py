@@ -105,3 +105,10 @@ async def test_ticks_stream_on_subscribe(server, http, ex, agents):
 async def test_symbols_list_from_exchange_info(server, http, ex, agents):
     r = await http.get("/accounts/A1/symbols")
     assert r.status_code == 200 and "BTCUSDT" in r.json()["symbols"]
+
+
+async def test_state_follows_the_funded_margin_asset(server, http, ex, agents):
+    ex.asset = "USDC"   # account funded in USDC only: state must report USDC, not a zero USDT line
+    await asyncio.sleep(0.7)  # next reconcile
+    s = (await http.get("/accounts/A1/state")).json()
+    assert s["account"]["currency"] == "USDC" and s["account"]["balance"] == ex.wallet

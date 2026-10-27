@@ -11,6 +11,7 @@ def _ms():
 class Fake:
     testnet = True
     key = "fakekey0000"
+    asset = "USDT"   # margin asset the fake account is funded in
 
     def __init__(self):
         self.prices = {"BTCUSDT": (60000.0, 60001.0), "ETHUSDT": (3000.0, 3000.5)}  # bid, ask
@@ -46,7 +47,7 @@ class Fake:
 
     def _emit_account(self):
         self.events.put_nowait({"e": "ACCOUNT_UPDATE", "E": _ms(), "a": {
-            "B": [{"a": "USDT", "wb": str(self.wallet), "cw": str(self.wallet)}],
+            "B": [{"a": self.asset, "wb": str(self.wallet), "cw": str(self.wallet)}],
             "P": [{"s": s, "pa": str(p["amt"]), "ep": str(p["entry"]), "up": str(self._upnl(s, p)), "ps": "BOTH"}
                   for s, p in self.pos.items()]}})
 
@@ -58,7 +59,7 @@ class Fake:
     async def balance(self):
         upnl = sum(self._upnl(s, p) for s, p in self.pos.items())
         margin = sum(abs(p["amt"]) * p["entry"] / 20 for p in self.pos.values())
-        return [{"asset": "USDT", "balance": str(self.wallet), "crossWalletBalance": str(self.wallet),
+        return [{"asset": self.asset, "balance": str(self.wallet), "crossWalletBalance": str(self.wallet),
                  "crossUnPnl": str(upnl), "availableBalance": str(self.wallet + upnl - margin)}]
 
     async def positions(self):
