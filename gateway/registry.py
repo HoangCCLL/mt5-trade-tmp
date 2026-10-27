@@ -121,5 +121,6 @@ def latency_breakdown(tm: dict, res: dict) -> dict:
         "mt5": None if res.get("d_mt5") is None else round(res["d_mt5"] * 1000, 1),
         "up": ms(tm.get("t_result"), ag("t_sent")),               # agent -> gateway
     }
-    sane = lambda v: None if v is None or total is None or v < 0 or v > total else v  # noqa: E731
+    # a few ms negative is skew jitter -> 0; far negative or longer than total is impossible -> unknown
+    sane = lambda v: None if v is None or total is None or v < -5 or v > total else max(0.0, v)  # noqa: E731
     return {"cmd": tm.get("cmd"), **{k: sane(v) for k, v in hops.items()}, "total": total}
