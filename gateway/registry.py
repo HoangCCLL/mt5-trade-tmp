@@ -22,6 +22,7 @@ class Agent:
         self.trader: WebSocket | None = None
         self.streamer: WebSocket | None = None
         self.pending: dict[str, asyncio.Future] = {}
+        self.timing: dict[str, dict] = {}  # gateway-clock timestamps per in-flight command
         self.tick_refs: dict[str, int] = {}
         self.unsub_timers: dict[str, asyncio.TimerHandle] = {}
 
@@ -41,16 +42,29 @@ class Registry:
         msg = envelope(type_, payload, id_)
         fut = asyncio.get_running_loop().create_future()
         a.pending[msg["id"]] = fut
+        tm = a.timing[msg["id"]] = {"t_http": time.time()}
         try:
             await a.trader.send_json(msg)
+            tm["t_sent"] = time.time()
             return await asyncio.wait_for(fut, config.RESULT_TIMEOUT)
         except asyncio.TimeoutError:
             raise ResultTimeout(msg["id"])
         finally:
             a.pending.pop(msg["id"], None)
+            a.timing.pop(msg["id"], None)
+
+    def acked(self, account_id, id_):
+        tm = self.get(account_id).timing.get(id_)
+        if tm:
+            tm.setdefault("t_ack", time.time())
 
     def resolve(self, account_id, result: dict):
-        fut = self.get(account_id).pending.get(result.get("id"))
+        a = self.get(account_id)
+        tm = a.timing.get(result.get("id"))
+        if tm:
+            tm["t_result"] = time.time()
+            result["timing"] = latency_breakdown(tm, result)
+        fut = a.pending.get(result.get("id"))
         if fut and not fut.done():
             fut.set_result(result)
 
@@ -88,3 +102,19 @@ class Registry:
 
 
 registry = Registry()
+
+
+def latency_breakdown(tm: dict, res: dict) -> dict:
+    """Milliseconds per hop. Gateway timestamps (tm) are gateway clock; agent timestamps (res) are agent clock
+    shifted by the skew the agent measured from `hello`. `ack` and `total` use the gateway clock only."""
+    skew = res.get("t_skew") or 0.0
+    ag = lambda k: None if res.get(k) is None else res[k] + skew  # noqa: E731
+    ms = lambda a, b: None if a is None or b is None else max(0.0, round((a - b) * 1000, 1))  # noqa: E731
+    return {
+        "ack": ms(tm.get("t_ack"), tm.get("t_sent")),            # gateway -> agent -> gateway, pure gateway clock
+        "down": ms(ag("t_recv"), tm.get("t_sent")),              # gateway -> agent
+        "pool": ms(ag("t_mt5_start"), ag("t_recv")),             # waiting for a trade thread
+        "mt5": ms(ag("t_mt5_end"), ag("t_mt5_start")),           # order_check + order_send at the broker
+        "up": ms(tm.get("t_result"), ag("t_sent") or ag("t_mt5_end")),  # agent -> gateway
+        "total": ms(tm.get("t_result"), tm.get("t_http")),       # HTTP in -> result in
+    }

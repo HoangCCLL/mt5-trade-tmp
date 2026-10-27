@@ -10,8 +10,11 @@ async def on_trader(a: Agent, msg: dict):
     t, p = msg["type"], msg["payload"]
     if t == "result":
         registry.resolve(a.account_id, p)
+        if "timing" in p:
+            await bus.record_timing(a.account_id, {"id": p["id"], "status": p.get("status"), "at": time.time(), **p["timing"]})
         await bus.publish(f"acct:{a.account_id}", "result", p)
     elif t == "ack":
+        registry.acked(a.account_id, p.get("id"))
         await bus.publish(f"acct:{a.account_id}", "ack", p)
     elif t == "history":
         await bus.publish(f"acct:{a.account_id}", "history", p)

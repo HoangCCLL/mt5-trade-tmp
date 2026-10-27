@@ -420,3 +420,19 @@ app.include_router(api.router)
 3. Hai `EventSource` cùng mở với cùng symbol: `streamer` nhận đúng một `subscribe`. Đóng cả hai: `unsubscribe` tới sau 30 s, không sớm hơn.
 4. Kill `streamer` rồi nối lại: nhận `subscribe` chứa đủ symbol đang xem.
 5. Nối hai `trader` cùng account: socket cũ nhận close 4409, lệnh đi vào socket mới.
+
+
+## Observability: latency breakdown per lệnh
+
+Mỗi `result` của `order.*` được gateway gắn thêm `timing` (ms), tính từ các mốc đã có sẵn, không chạm vào đường thực thi lệnh:
+
+| hop | từ → đến | đồng hồ | ý nghĩa |
+|---|---|---|---|
+| `ack` | gateway gửi lệnh → nhận `ack` | gateway | round trip mạng + loop agent, không phụ thuộc skew |
+| `down` | gateway gửi → agent nhận (`t_recv`) | agent + skew | mạng chiều xuống |
+| `pool` | `t_recv` → `t_mt5_start` | agent | chờ thread trong `TRADE_POOL`; tăng khi nhiều lệnh đồng thời |
+| `mt5` | `t_mt5_start` → `t_mt5_end` | agent | `order_check` + `order_send` tại broker; phần không kiểm soát được |
+| `up` | agent gửi result (`t_sent`) → gateway nhận | agent + skew | mạng chiều lên |
+| `total` | HTTP vào → result về | gateway | cái client cảm nhận |
+
+Agent chỉ thêm hai trường vào result: `t_skew` (skew đo từ `hello`) và `t_sent`. Gateway lưu 500 timing gần nhất vào Redis list `metrics:{acct}`; `GET /accounts/{acct}/metrics?n=100` trả `recent` và `p50/p95/max` từng hop. UI có bảng Latency. Nếu `down`/`up` âm hoặc lệch bất thường trong khi `ack` ổn, nghi skew đo sai (VPS đổi giờ), không phải mạng.

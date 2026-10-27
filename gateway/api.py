@@ -111,3 +111,21 @@ async def stream(acct: str, request: Request, symbols: str = ""):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+SEGMENTS = ("ack", "down", "pool", "mt5", "up", "total")
+
+
+def _agg(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals:
+        return None
+    q = lambda p: vals[min(len(vals) - 1, round(p * (len(vals) - 1)))]  # noqa: E731
+    return {"p50": q(0.5), "p95": q(0.95), "max": vals[-1], "n": len(vals)}
+
+
+@router.get("/{acct}/metrics")
+async def metrics(acct: str, n: int = 100):
+    """Latency breakdown (ms) of the last n commands: where the time went, per hop."""
+    recent = await bus.recent_timings(acct, n)
+    return {"count": len(recent), "recent": recent, **{k: _agg(t.get(k) for t in recent) for k in SEGMENTS}}

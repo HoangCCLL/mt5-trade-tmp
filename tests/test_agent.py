@@ -214,3 +214,11 @@ async def test_history_fill_includes_deals_despite_broker_clock_offset(server, h
     await http.post("/accounts/A1/history/fill")
     hist = [d for e, d in await task if e == "history"][0]
     assert hist["total"] == 1
+
+
+async def test_order_result_includes_timing_breakdown(server, http, mt5, trader):
+    mt5.order_send_delay = 0.2
+    r = (await http.post("/accounts/A1/orders", json=ORDER)).json()
+    t = r["timing"]
+    assert set(t) >= {"down", "pool", "mt5", "up", "total"}
+    assert t["mt5"] >= 190 and t["total"] >= t["mt5"] and t["down"] >= 0 and t["up"] >= 0

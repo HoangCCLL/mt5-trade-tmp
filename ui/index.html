@@ -53,6 +53,7 @@
     <form id="subs" class="row"><input name="symbols" class="wide" placeholder="EURUSD,GBPUSD"><button>Subscribe</button></form>
     <table id="ticks"><thead><tr><th>symbol</th><th>bid</th><th>ask</th><th>time</th></tr></thead><tbody></tbody></table>
   </section>
+  <section class="card"><h2>Latency (ms, last 100)</h2><table id="metrics"><thead><tr><th>hop</th><th>p50</th><th>p95</th><th>max</th></tr></thead><tbody></tbody></table></section>
   <section class="card"><h2>Events</h2><pre id="log"></pre></section>
 </div>
 <script>
@@ -83,7 +84,7 @@ async function loadAccounts() {
     if (list.some(a => a.id === cur)) $('#acct').value = cur;
     const a = list.find(x => x.id === acct());
     $('#status').innerHTML = a ? ['trader', 'streamer', 'alive'].map(k => `<span class="badge ${a[k] ? 'on' : 'off'}">${k}</span>`).join(' ') : '';
-    if (!abort || cur !== acct()) openStream();  // only (re)open when the account changed; the 15 s poll must not restart the stream
+    if (!abort || cur !== acct()) { openStream(); loadMetrics(); }  // only (re)open when the account changed; the 15 s poll must not restart the stream
   } catch (e) { log('accounts error', e.message); }
 }
 
@@ -96,6 +97,14 @@ function renderState(s) {
     <td>${p.ticket}</td><td>${p.symbol}</td><td>${p.type === 0 ? 'buy' : 'sell'}</td><td>${p.volume}</td><td>${fmt(p.price_open)}</td>
     <td>${fmt(p.sl)}</td><td>${fmt(p.tp)}</td><td class="${p.profit >= 0 ? 'pos' : 'neg'}">${fmt(p.profit)}</td><td>${p.magic}</td>
     <td><button data-close="${p.ticket}" class="danger">close</button> <button data-modify="${p.ticket}" data-sl="${p.sl}" data-tp="${p.tp}">sl/tp</button></td></tr>`).join('');
+}
+
+const HOPS = {ack: 'ack round trip', down: 'gateway → agent', pool: 'thread wait', mt5: 'broker (order_send)', up: 'agent → gateway', total: 'HTTP in → result'};
+async function loadMetrics() {
+  try {
+    const m = await api('GET', `/accounts/${acct()}/metrics`);
+    $('#metrics tbody').innerHTML = Object.entries(HOPS).map(([k, label]) => { const v = m[k]; return `<tr><td>${label}</td><td>${v ? v.p50 : ''}</td><td>${v ? v.p95 : ''}</td><td>${v ? v.max : ''}</td></tr>`; }).join('');
+  } catch (e) { log('metrics error', e.message); }
 }
 
 async function openStream() {
@@ -131,7 +140,7 @@ function handle(ev, d) {
     ticks[d.symbol] = d;
     $('#ticks tbody').innerHTML = Object.values(ticks).map(t => `<tr><td>${t.symbol}</td><td>${fmt(t.bid)}</td><td>${fmt(t.ask)}</td><td>${new Date(t.time_msc).toLocaleTimeString()}</td></tr>`).join('');
   } else if (ev === 'deal') log(`deal ${d.entry === 0 ? 'in' : 'out'} ${d.symbol} ${d.volume} @ ${d.price}`, {ticket: d.ticket, magic: d.magic, profit: d.profit});
-  else if (ev === 'result') log(`result ${d.status}`, {id: d.id, retcode: d.retcode, comment: d.comment, order: d.order});
+  else if (ev === 'result') { log(`result ${d.status}`, {retcode: d.retcode, comment: d.comment, order: d.order, ms: d.timing}); loadMetrics(); }
   else if (ev !== 'ack' && ev !== 'heartbeat') log(ev, d);
 }
 

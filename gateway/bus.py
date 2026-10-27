@@ -45,3 +45,13 @@ async def subscribe(channels: list[str], idle=15.0):
     finally:
         await ps.unsubscribe(*channels)
         await ps.aclose()
+
+
+async def record_timing(account_id, timing: dict, keep=500):
+    async with r.pipeline() as p:
+        p.lpush(f"metrics:{account_id}", json.dumps(timing)); p.ltrim(f"metrics:{account_id}", 0, keep - 1)
+        await p.execute()
+
+
+async def recent_timings(account_id, n=100):
+    return [json.loads(x) for x in await r.lrange(f"metrics:{account_id}", 0, n - 1)]

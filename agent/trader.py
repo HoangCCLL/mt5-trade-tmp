@@ -125,7 +125,7 @@ async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
         except Exception as e:
             log.exception("execute failed for %s", cid)
             res = {"status": "error", "retcode": -1, "comment": f"{type(e).__name__}: {e}"}  # thread keeps running; report the real outcome when it lands
-    res = {"id": cid, "t_recv": t_recv, **res}
+    res = {"id": cid, "t_recv": t_recv, "t_skew": skew, **res, "t_sent": now()}  # agent clock; gateway builds the latency breakdown
     _remember(cid, res)
     emit("result", res)
 

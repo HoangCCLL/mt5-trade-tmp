@@ -137,3 +137,12 @@ async def test_trader_heartbeat_is_answered_with_hello(server):
 async def test_ui_is_served_same_origin(http):
     r = await http.get("/ui/")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "<title>" in r.text
+
+
+async def test_metrics_endpoint_aggregates_recent_timings(server, http):
+    async with FakeAgent(server, "A1", "trader", result_delay=0.05):
+        for _ in range(3):
+            await http.post("/accounts/A1/orders", json={"symbol": "EURUSD", "side": "buy", "volume": 0.1, "magic": 1})
+        m = (await http.get("/accounts/A1/metrics")).json()
+    assert m["count"] == 3 and m["total"]["p50"] >= 50 and m["total"]["max"] >= m["total"]["p50"]
+    assert len(m["recent"]) == 3 and m["recent"][0]["total"] >= 50
