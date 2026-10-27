@@ -48,6 +48,13 @@ async def run(acct, type_, payload, idem: str | None):
         raise HTTPException(504, {"id": e.id, "detail": "no result within timeout"})
 
 
+@router.get("/{acct}/symbols")
+async def symbols(acct: str):
+    """Market Watch symbols of the terminal, via the trader (one IPC call, ~ms)."""
+    r = await run(acct, "symbols.list", {}, None)
+    return {"symbols": r.get("symbols", [])}
+
+
 @router.post("/{acct}/orders")
 async def open_order(acct: str, body: OrderOpen, idempotency_key: str | None = Header(default=None)):
     return await run(acct, "order.open", body.model_dump(exclude_none=True), idempotency_key)

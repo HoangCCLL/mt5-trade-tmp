@@ -71,6 +71,12 @@ def account_info():
                        profit=profit, currency="USD")
 
 
+def symbols_get(group=None):
+    calls["symbols_get"] += 1
+    return tuple(SymbolInfo(name=n, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK, trade_stops_level=0,
+                            volume_min=0.01, volume_step=0.01) for n in ("EURUSD", "GBPUSD", "XAUUSD"))
+
+
 def symbol_info(symbol):
     return SymbolInfo(name=symbol, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK,
                       trade_stops_level=0, volume_min=0.01, volume_step=0.01)

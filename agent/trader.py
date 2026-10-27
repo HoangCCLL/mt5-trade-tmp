@@ -69,6 +69,10 @@ def execute(cmd) -> dict:
     """Runs in a worker thread. Returns the result payload (without id)."""
     t0 = time.time()
     type_, p = cmd["type"], cmd["payload"]
+    if type_ == "symbols.list":  # Market Watch names; the real SDK also exposes hidden symbols, keep only visible ones
+        syms = mt5.symbols_get() or ()
+        return {"status": "done", "symbols": sorted(x.name for x in syms if getattr(x, "visible", True)),
+                "t_mt5_start": t0, "t_mt5_end": time.time()}
     if type_ == "symbol.info":
         return {"status": "done", "symbols": {s: mt5.symbol_info_tick(s)._asdict() for s in p["symbols"]},
                 "t_mt5_start": t0, "t_mt5_end": time.time()}

@@ -222,3 +222,8 @@ async def test_order_result_includes_timing_breakdown(server, http, mt5, trader)
     t = r["timing"]
     assert set(t) >= {"down", "pool", "mt5", "up", "total"}
     assert t["mt5"] >= 190 and t["total"] >= t["mt5"] and t["down"] >= 0 and t["up"] >= 0
+
+
+async def test_symbols_endpoint_lists_market_watch(server, http, mt5, trader):
+    r = await http.get("/accounts/A1/symbols")
+    assert r.status_code == 200 and "EURUSD" in r.json()["symbols"]

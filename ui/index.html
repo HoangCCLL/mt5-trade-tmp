@@ -28,33 +28,34 @@
 <body>
 <header>
   <h1>MT5 Gateway</h1>
-  <input id="key" placeholder="API key" type="password" size="28">
-  <select id="acct"></select>
-  <button id="refresh">Refresh</button>
-  <span id="status"></span>
+  <input id="key" placeholder="API key" type="password" size="28" title="GATEWAY_API_KEY của BE. Lưu trong trình duyệt này, không gửi đi đâu khác.">
+  <select id="acct" title="Account = một VPS = một terminal MT5. ● đang alive, ○ mất heartbeat > 15 s."></select>
+  <button id="refresh" title="Tải lại danh sách account và trạng thái (tự chạy mỗi 15 s)">Refresh</button>
+  <span id="status" title="trader: worker đặt lệnh đã nối. streamer: worker đẩy state/tick đã nối. alive: có heartbeat trong 15 s qua."></span>
 </header>
 <div class="grid">
-  <section class="card"><h2>Account</h2><div id="account" class="kv"></div></section>
+  <section class="card"><h2 title="Snapshot tài khoản từ streamer, cập nhật khi có thay đổi hoặc mỗi 30 s">Account</h2><div id="account" class="kv"></div></section>
   <section class="card"><h2>New order</h2>
     <form id="order" class="row">
-      <input name="symbol" placeholder="symbol" value="EURUSD" required>
-      <select name="side"><option>buy</option><option>sell</option></select>
-      <input name="volume" type="number" step="0.01" min="0.01" value="0.01" required>
-      <input name="sl" type="number" step="any" placeholder="sl">
-      <input name="tp" type="number" step="any" placeholder="tp">
-      <input name="magic" type="number" value="1" required>
-      <input name="comment" class="wide" placeholder="comment" maxlength="31">
-      <button class="primary">Send</button>
+      <select name="symbol" required title="Symbol trong Market Watch của terminal (lấy từ terminal khi chọn account)"><option value="">symbol…</option></select>
+      <select name="side" title="buy = mua tại ask, sell = bán tại bid"><option>buy</option><option>sell</option></select>
+      <input name="volume" type="number" step="0.01" min="0.01" value="0.01" required title="Khối lượng (lot). 0.01 = micro lot">
+      <input name="sl" type="number" step="any" placeholder="sl" title="Stop loss (giá). Để trống = không đặt">
+      <input name="tp" type="number" step="any" placeholder="tp" title="Take profit (giá). Để trống = không đặt">
+      <input name="magic" type="number" list="magics" value="1" required title="Magic number: nhãn số để nhận ra lệnh của hệ thống/chiến lược nào. Gợi ý từ các position đang mở">
+      <datalist id="magics"></datalist>
+      <input name="comment" class="wide" placeholder="comment" maxlength="31" title="Ghi chú ≤ 31 ký tự, broker có thể ghi đè">
+      <button class="primary" title="Gửi lệnh market. Kết quả về trong Events kèm latency">Send</button>
     </form>
   </section>
   <section class="card" style="grid-column:1/-1"><h2>Positions</h2><div class="scroll"><table id="positions"><thead><tr>
-    <th>ticket</th><th>symbol</th><th>type</th><th>volume</th><th>open</th><th>sl</th><th>tp</th><th>profit</th><th>magic</th><th></th></tr></thead><tbody></tbody></table></div></section>
+    <th title="Position ticket, dùng để close/modify">ticket</th><th>symbol</th><th title="buy hoặc sell">type</th><th title="lot">volume</th><th title="Giá mở">open</th><th title="Stop loss">sl</th><th title="Take profit">tp</th><th title="Lãi/lỗ thả nổi theo tiền tài khoản">profit</th><th title="Magic number">magic</th><th></th></tr></thead><tbody></tbody></table></div></section>
   <section class="card"><h2>Ticks</h2>
-    <form id="subs" class="row"><input name="symbols" class="wide" placeholder="EURUSD,GBPUSD"><button>Subscribe</button></form>
-    <table id="ticks"><thead><tr><th>symbol</th><th>bid</th><th>ask</th><th>time</th></tr></thead><tbody></tbody></table>
+    <form id="subs" class="row"><input name="symbols" class="wide" placeholder="EURUSD,GBPUSD" title="Danh sách symbol cách nhau bằng dấu phẩy. Chỉ stream khi có người xem, tự ngắt 30 s sau khi đóng trang"><button>Subscribe</button></form>
+    <table id="ticks"><thead><tr><th>symbol</th><th title="Giá bán (sell khớp tại đây)">bid</th><th title="Giá mua (buy khớp tại đây)">ask</th><th title="Giờ tick theo đồng hồ server broker">time</th></tr></thead><tbody></tbody></table>
   </section>
-  <section class="card"><h2>Latency (ms, last 100)</h2><table id="metrics"><thead><tr><th>hop</th><th>p50</th><th>p95</th><th>max</th></tr></thead><tbody></tbody></table></section>
-  <section class="card"><h2>Events</h2><pre id="log"></pre></section>
+  <section class="card"><h2 title="Thời gian từng chặng của 100 lệnh gần nhất. Rê chuột lên tên chặng để xem ý nghĩa">Latency (ms, last 100)</h2><table id="metrics"><thead><tr><th>hop</th><th title="Trung vị">p50</th><th title="95% lệnh nhanh hơn mức này">p95</th><th title="Chậm nhất">max</th></tr></thead><tbody></tbody></table></section>
+  <section class="card"><h2 title="deal: khớp lệnh từ terminal. result: trả lời lệnh kèm ms từng chặng. Mới nhất ở trên">Events</h2><pre id="log"></pre></section>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -84,7 +85,7 @@ async function loadAccounts() {
     if (list.some(a => a.id === cur)) $('#acct').value = cur;
     const a = list.find(x => x.id === acct());
     $('#status').innerHTML = a ? ['trader', 'streamer', 'alive'].map(k => `<span class="badge ${a[k] ? 'on' : 'off'}">${k}</span>`).join(' ') : '';
-    if (!abort || cur !== acct()) { openStream(); loadMetrics(); }  // only (re)open when the account changed; the 15 s poll must not restart the stream
+    if (!abort || cur !== acct()) { openStream(); loadMetrics(); loadSymbols(); }  // only (re)open when the account changed; the 15 s poll must not restart the stream
   } catch (e) { log('accounts error', e.message); }
 }
 
@@ -96,15 +97,32 @@ function renderState(s) {
   $('#positions tbody').innerHTML = (s.positions || []).map(p => `<tr>
     <td>${p.ticket}</td><td>${p.symbol}</td><td>${p.type === 0 ? 'buy' : 'sell'}</td><td>${p.volume}</td><td>${fmt(p.price_open)}</td>
     <td>${fmt(p.sl)}</td><td>${fmt(p.tp)}</td><td class="${p.profit >= 0 ? 'pos' : 'neg'}">${fmt(p.profit)}</td><td>${p.magic}</td>
-    <td><button data-close="${p.ticket}" class="danger">close</button> <button data-modify="${p.ticket}" data-sl="${p.sl}" data-tp="${p.tp}">sl/tp</button></td></tr>`).join('');
+    <td><button data-close="${p.ticket}" class="danger" title="Đóng toàn bộ position (market)">close</button> <button data-modify="${p.ticket}" data-sl="${p.sl}" data-tp="${p.tp}" title="Sửa SL/TP">sl/tp</button></td></tr>`).join('');
+  $('#magics').innerHTML = [...new Set((s.positions || []).map(p => p.magic))].map(m => `<option value="${m}">`).join('');
 }
 
-const HOPS = {ack: 'ack round trip', down: 'gateway → agent', pool: 'thread wait', mt5: 'broker (order_send)', up: 'agent → gateway', total: 'HTTP in → result'};
+const HOPS = {
+  ack: ['ack round trip', 'Gateway gửi lệnh → nhận ack từ agent. Chỉ dùng đồng hồ gateway nên luôn tin được. Lớn = mạng hoặc agent bận'],
+  down: ['gateway → agent', 'Mạng chiều xuống, cần skew đồng hồ VPS. Nếu lệch nhiều trong khi ack nhỏ → skew sai, không phải mạng'],
+  pool: ['thread wait', 'Agent nhận lệnh → thread gọi MT5. Tăng khi nhiều lệnh cùng lúc (4 thread)'],
+  mt5: ['broker (order_send)', 'order_check + order_send tại broker. Phần không kiểm soát được, phụ thuộc broker và ping VPS → server'],
+  up: ['agent → gateway', 'Agent gửi result → gateway nhận. Mạng chiều lên, cần skew'],
+  total: ['HTTP in → result', 'Cái client cảm nhận: từ lúc gateway nhận HTTP tới khi có result'],
+};
 async function loadMetrics() {
   try {
     const m = await api('GET', `/accounts/${acct()}/metrics`);
-    $('#metrics tbody').innerHTML = Object.entries(HOPS).map(([k, label]) => { const v = m[k]; return `<tr><td>${label}</td><td>${v ? v.p50 : ''}</td><td>${v ? v.p95 : ''}</td><td>${v ? v.max : ''}</td></tr>`; }).join('');
+    $('#metrics tbody').innerHTML = Object.entries(HOPS).map(([k, [label, hint]]) => { const v = m[k]; return `<tr><td title="${hint}">${label}</td><td>${v ? v.p50 : ''}</td><td>${v ? v.p95 : ''}</td><td>${v ? v.max : ''}</td></tr>`; }).join('');
   } catch (e) { log('metrics error', e.message); }
+}
+
+async function loadSymbols() {
+  const sel = $('#order').symbol, keep = sel.value;
+  try {
+    const {symbols} = await api('GET', `/accounts/${acct()}/symbols`);
+    sel.innerHTML = '<option value="">symbol…</option>' + symbols.map(s => `<option>${s}</option>`).join('');
+    sel.value = symbols.includes(keep) ? keep : (symbols.includes('EURUSD') ? 'EURUSD' : '');
+  } catch (e) { log('symbols error', e.message); }
 }
 
 async function openStream() {

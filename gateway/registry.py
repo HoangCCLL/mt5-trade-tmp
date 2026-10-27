@@ -42,7 +42,7 @@ class Registry:
         msg = envelope(type_, payload, id_)
         fut = asyncio.get_running_loop().create_future()
         a.pending[msg["id"]] = fut
-        tm = a.timing[msg["id"]] = {"t_http": time.time()}
+        tm = a.timing[msg["id"]] = {"t_http": time.time(), "cmd": type_}
         try:
             await a.trader.send_json(msg)
             tm["t_sent"] = time.time()
@@ -111,6 +111,7 @@ def latency_breakdown(tm: dict, res: dict) -> dict:
     ag = lambda k: None if res.get(k) is None else res[k] + skew  # noqa: E731
     ms = lambda a, b: None if a is None or b is None else max(0.0, round((a - b) * 1000, 1))  # noqa: E731
     return {
+        "cmd": tm.get("cmd"),
         "ack": ms(tm.get("t_ack"), tm.get("t_sent")),            # gateway -> agent -> gateway, pure gateway clock
         "down": ms(ag("t_recv"), tm.get("t_sent")),              # gateway -> agent
         "pool": ms(ag("t_mt5_start"), ag("t_recv")),             # waiting for a trade thread
