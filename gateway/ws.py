@@ -1,6 +1,7 @@
+import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from . import bus, config
-from .registry import registry, Agent
+from .registry import registry, Agent, envelope
 
 router = APIRouter()
 
@@ -41,6 +42,7 @@ async def agent_ws(ws: WebSocket, account_id: str, role: str):
         await ws.close(code=4401)
         return
     await ws.accept()
+    await ws.send_json(envelope("hello", {"ts": time.time()}))  # agent derives its clock skew from this
     a = registry.get(account_id)
     old = getattr(a, role)
     setattr(a, role, ws)

@@ -69,6 +69,8 @@ class FakeAgent:
         try:
             async for raw in self.ws:
                 msg = json.loads(raw)
+                if msg["type"] == "hello":  # clock-sync greeting, not part of the command flow under test
+                    continue
                 self.received.append(msg)
                 if self.role == "trader" and msg["type"].startswith("order."):
                     asyncio.create_task(self._reply(msg["id"]))

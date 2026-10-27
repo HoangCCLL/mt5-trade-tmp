@@ -192,3 +192,25 @@ async def test_streamer_backs_off_on_stale_ticks_despite_broker_clock_offset(ser
         before = mt5.calls["symbol_info_tick"]
         await asyncio.sleep(0.5)
         assert mt5.calls["symbol_info_tick"] - before <= 1, "poller did not back off on stale ticks"
+
+
+async def test_trader_ttl_tolerates_skewed_vps_clock(server, http, mt5, monkeypatch):
+    from agent import trader as tr
+    monkeypatch.setattr(tr, "now", lambda: time.time() + 120)  # VPS clock two minutes fast
+    t = asyncio.create_task(tr.run(server.replace("http", "ws") + "/agents/A1/trader", "tokA1", order_timeout=1.0, ttl=5.0))
+    await asyncio.sleep(0.2)
+    try:
+        r = await http.post("/accounts/A1/orders", json=ORDER)
+        assert r.json()["status"] == "done", r.json()
+    finally:
+        t.cancel()
+
+
+async def test_history_fill_includes_deals_despite_broker_clock_offset(server, http, mt5, trader):
+    mt5.clock_offset = 3 * 3600
+    await http.post("/accounts/A1/orders", json=ORDER)
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "history" for e, _ in g)))
+    await asyncio.sleep(0.1)
+    await http.post("/accounts/A1/history/fill")
+    hist = [d for e, d in await task if e == "history"][0]
+    assert hist["total"] == 1

@@ -2,10 +2,10 @@
 import asyncio, logging, os, time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from .common import Link, heartbeat, init_mt5, log
 from .mt5_api import mt5
 
+now = time.time  # patched in tests; TTL is checked in gateway time via the skew measured from `hello`
 TRADE_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="trade")
 BATCH = 50
 results: OrderedDict[str, dict] = OrderedDict()
@@ -91,8 +91,9 @@ def execute(cmd) -> dict:
 async def history_fill(cmd, emit):
     p = cmd["payload"]
     loop = asyncio.get_running_loop()
+    # int epochs pass through as broker server time; +1 day absorbs the server-vs-VPS clock offset
     deals = await loop.run_in_executor(TRADE_POOL, mt5.history_deals_get,
-                                       datetime.fromtimestamp(float(p.get("from") or 0)), datetime.now())
+                                       int(float(p.get("from") or 0)), int(now()) + 86400)
     deals = [d._asdict() for d in deals]
     total = len(deals)
     for i in range(0, total, BATCH):
@@ -101,12 +102,12 @@ async def history_fill(cmd, emit):
     return {"status": "done", "count": total}
 
 
-async def handle_command(cmd, emit, ttl, order_timeout):
-    cid, t_recv = cmd["id"], time.time()
+async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
+    cid, t_recv = cmd["id"], now()
     if cid in results:
         emit("result", results[cid])
         return
-    if t_recv - float(cmd.get("ts", 0)) > ttl:
+    if t_recv + skew - float(cmd.get("ts", 0)) > ttl:  # compare in gateway time
         res = {"id": cid, "status": "rejected", "comment": "ttl_expired"}
         _remember(cid, res)
         emit("result", res)
@@ -131,13 +132,18 @@ async def handle_command(cmd, emit, ttl, order_timeout):
 
 async def run(url, token, order_timeout=30.0, ttl=5.0):
     init_mt5()
-    link = Link(url, token)
+    link, clock = Link(url, token), {"skew": 0.0}
 
     async def on_message(msg):
-        await handle_command(msg, link.emit, ttl, order_timeout)
+        if msg["type"] == "hello":
+            clock["skew"] = msg["payload"]["ts"] - now()
+            log.info("clock skew vs gateway: %+.3fs", clock["skew"])
+            return
+        await handle_command(msg, link.emit, ttl, order_timeout, skew=clock["skew"])
 
     await asyncio.gather(link.run(on_message),
-                         heartbeat(link.emit, lambda: {"pool_busy": TRADE_POOL._work_queue.qsize()}))
+                         heartbeat(link.emit, lambda: {"pool_busy": TRADE_POOL._work_queue.qsize(),
+                                                       "clock_skew": round(clock["skew"], 3)}))
 
 
 if __name__ == "__main__":
