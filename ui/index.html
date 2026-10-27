@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MT5 Gateway</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --ok:#16a34a; --bad:#dc2626; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1216; --fg:#e6e8eb; --muted:#9aa3ad; --card:#171b21; --line:#2a313a; } }
+  :root[data-theme="dark"] { --bg:#0f1216; --fg:#e6e8eb; --muted:#9aa3ad; --card:#171b21; --line:#2a313a; }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,sans-serif; padding:16px }
+  header { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:16px }
+  h1 { font-size:18px; margin:0 12px 0 0 } h2 { font-size:14px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em }
+  input, select, button { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg) }
+  button { cursor:pointer } button.primary { background:var(--accent); color:#fff; border-color:var(--accent) } button.danger { color:var(--bad) }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)) }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; min-width:0 }
+  table { width:100%; border-collapse:collapse } th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); white-space:nowrap } th { color:var(--muted); font-weight:500 }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px } .kv b { font-weight:500; color:var(--muted) }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line) }
+  .on { color:var(--ok); border-color:var(--ok) } .off { color:var(--bad); border-color:var(--bad) }
+  .pos { color:var(--ok) } .neg { color:var(--bad) }
+  #log { font:12px/1.4 ui-monospace,monospace; max-height:260px; overflow:auto; white-space:pre-wrap; margin:0 }
+  form.row { display:flex; flex-wrap:wrap; gap:6px } form.row input { width:110px } form.row input.wide { width:160px }
+  .scroll { overflow-x:auto }
+</style>
+</head>
+<body>
+<header>
+  <h1>MT5 Gateway</h1>
+  <input id="key" placeholder="API key" type="password" size="28">
+  <select id="acct"></select>
+  <button id="refresh">Refresh</button>
+  <span id="status"></span>
+</header>
+<div class="grid">
+  <section class="card"><h2>Account</h2><div id="account" class="kv"></div></section>
+  <section class="card"><h2>New order</h2>
+    <form id="order" class="row">
+      <input name="symbol" placeholder="symbol" value="EURUSD" required>
+      <select name="side"><option>buy</option><option>sell</option></select>
+      <input name="volume" type="number" step="0.01" min="0.01" value="0.01" required>
+      <input name="sl" type="number" step="any" placeholder="sl">
+      <input name="tp" type="number" step="any" placeholder="tp">
+      <input name="magic" type="number" value="1" required>
+      <input name="comment" class="wide" placeholder="comment" maxlength="31">
+      <button class="primary">Send</button>
+    </form>
+  </section>
+  <section class="card" style="grid-column:1/-1"><h2>Positions</h2><div class="scroll"><table id="positions"><thead><tr>
+    <th>ticket</th><th>symbol</th><th>type</th><th>volume</th><th>open</th><th>sl</th><th>tp</th><th>profit</th><th>magic</th><th></th></tr></thead><tbody></tbody></table></div></section>
+  <section class="card"><h2>Ticks</h2>
+    <form id="subs" class="row"><input name="symbols" class="wide" placeholder="EURUSD,GBPUSD"><button>Subscribe</button></form>
+    <table id="ticks"><thead><tr><th>symbol</th><th>bid</th><th>ask</th><th>time</th></tr></thead><tbody></tbody></table>
+  </section>
+  <section class="card"><h2>Events</h2><pre id="log"></pre></section>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const key = () => $('#key').value.trim();
+const acct = () => $('#acct').value;
+const H = () => ({'X-Api-Key': key(), 'Content-Type': 'application/json'});
+const log = (t, o) => { const l = $('#log'); l.textContent = `${new Date().toLocaleTimeString()} ${t} ${o === undefined ? '' : JSON.stringify(o)}\n` + l.textContent.slice(0, 20000); };
+const fmt = n => n == null ? '' : (+n).toLocaleString(undefined, {maximumFractionDigits: 5});
+let abort = null, symbols = '';
+
+try { $('#key').value = localStorage.getItem('apiKey') || ''; symbols = localStorage.getItem('symbols') || ''; $('#subs').symbols.value = symbols; } catch {}
+$('#key').addEventListener('change', () => { try { localStorage.setItem('apiKey', key()); } catch {} loadAccounts(); });
+
+async function api(method, path, body) {
+  const r = await fetch(path, {method, headers: H(), body: body && JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.detail?.detail || j.detail || r.statusText), {status: r.status, body: j});
+  return j;
+}
+
+async function loadAccounts() {
+  if (!key()) return;
+  try {
+    const list = await api('GET', '/accounts');
+    const cur = acct();
+    $('#acct').innerHTML = list.map(a => `<option value="${a.id}">${a.id} ${a.alive ? '●' : '○'}</option>`).join('');
+    if (list.some(a => a.id === cur)) $('#acct').value = cur;
+    const a = list.find(x => x.id === acct());
+    $('#status').innerHTML = a ? ['trader', 'streamer', 'alive'].map(k => `<span class="badge ${a[k] ? 'on' : 'off'}">${k}</span>`).join(' ') : '';
+    if (!abort || cur !== acct()) openStream();  // only (re)open when the account changed; the 15 s poll must not restart the stream
+  } catch (e) { log('accounts error', e.message); }
+}
+
+function renderState(s) {
+  const a = s.account || {};
+  $('#account').innerHTML = [['login', a.login], ['server', a.server], ['balance', fmt(a.balance)], ['equity', fmt(a.equity)],
+    ['margin', fmt(a.margin)], ['free', fmt(a.margin_free)], ['profit', fmt(a.profit)], ['connected', s.connected]]
+    .map(([k, v]) => `<b>${k}</b><span>${v ?? ''}</span>`).join('');
+  $('#positions tbody').innerHTML = (s.positions || []).map(p => `<tr>
+    <td>${p.ticket}</td><td>${p.symbol}</td><td>${p.type === 0 ? 'buy' : 'sell'}</td><td>${p.volume}</td><td>${fmt(p.price_open)}</td>
+    <td>${fmt(p.sl)}</td><td>${fmt(p.tp)}</td><td class="${p.profit >= 0 ? 'pos' : 'neg'}">${fmt(p.profit)}</td><td>${p.magic}</td>
+    <td><button data-close="${p.ticket}" class="danger">close</button> <button data-modify="${p.ticket}" data-sl="${p.sl}" data-tp="${p.tp}">sl/tp</button></td></tr>`).join('');
+}
+
+async function openStream() {
+  if (abort) abort.abort();
+  abort = new AbortController();
+  const id = acct(), signal = abort.signal;
+  $('#ticks tbody').innerHTML = '';
+  try {
+    const r = await fetch(`/accounts/${id}/stream?symbols=${encodeURIComponent(symbols)}`, {headers: H(), signal});
+    if (!r.ok) throw new Error(`stream ${r.status}`);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '', ev = '';
+    for (;;) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (line.startsWith('event:')) ev = line.slice(6).trim();
+        else if (line.startsWith('data:')) handle(ev, JSON.parse(line.slice(5)));
+      }
+    }
+    log('stream closed, reconnecting');
+  } catch (e) { if (!signal.aborted) log('stream error', e.message); }
+  if (!signal.aborted) setTimeout(openStream, 2000);
+}
+
+const ticks = {};
+function handle(ev, d) {
+  if (ev === 'state') renderState(d);
+  else if (ev === 'tick') {
+    ticks[d.symbol] = d;
+    $('#ticks tbody').innerHTML = Object.values(ticks).map(t => `<tr><td>${t.symbol}</td><td>${fmt(t.bid)}</td><td>${fmt(t.ask)}</td><td>${new Date(t.time_msc).toLocaleTimeString()}</td></tr>`).join('');
+  } else if (ev === 'deal') log(`deal ${d.entry === 0 ? 'in' : 'out'} ${d.symbol} ${d.volume} @ ${d.price}`, {ticket: d.ticket, magic: d.magic, profit: d.profit});
+  else if (ev === 'result') log(`result ${d.status}`, {id: d.id, retcode: d.retcode, comment: d.comment, order: d.order});
+  else if (ev !== 'ack' && ev !== 'heartbeat') log(ev, d);
+}
+
+$('#order').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = new FormData(e.target), body = {};
+  for (const [k, v] of f) if (v !== '') body[k] = ['volume', 'sl', 'tp', 'magic'].includes(k) ? +v : v;
+  try { log('order ->', body); const r = await api('POST', `/accounts/${acct()}/orders`, body); log(`order ${r.status}`, {retcode: r.retcode, comment: r.comment, order: r.order, price: r.price}); }
+  catch (err) { log(`order failed ${err.status}`, err.body); }
+});
+$('#positions').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  try {
+    if (b.dataset.close) { if (!confirm(`Close position ${b.dataset.close}?`)) return; const r = await api('POST', `/accounts/${acct()}/positions/${b.dataset.close}/close`, {}); log(`close ${r.status}`, {retcode: r.retcode, comment: r.comment}); }
+    if (b.dataset.modify) {
+      const sl = prompt('SL (empty = unchanged)', b.dataset.sl), tp = prompt('TP (empty = unchanged)', b.dataset.tp);
+      if (sl === null && tp === null) return;
+      const r = await api('PATCH', `/accounts/${acct()}/positions/${b.dataset.modify}`, {sl: sl ? +sl : null, tp: tp ? +tp : null});
+      log(`modify ${r.status}`, {retcode: r.retcode, comment: r.comment});
+    }
+  } catch (err) { log(`failed ${err.status}`, err.body); }
+});
+$('#subs').addEventListener('submit', e => { e.preventDefault(); symbols = e.target.symbols.value.replace(/\s/g, ''); try { localStorage.setItem('symbols', symbols); } catch {} openStream(); });
+$('#acct').addEventListener('change', () => { openStream(); loadAccounts(); });
+$('#refresh').addEventListener('click', loadAccounts);
+loadAccounts();
+setInterval(() => { if (document.visibilityState === 'visible') loadAccounts(); }, 15000);
+</script>
+</body>
+</html>

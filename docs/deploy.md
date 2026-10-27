@@ -15,6 +15,10 @@ curl -H "X-Api-Key: $GATEWAY_API_KEY" http://<GATEWAY_BIND>/accounts
 - Log: `docker compose logs -f gateway`.
 - Thêm account: thêm vào `AGENT_TOKENS` trong `.env`, `docker compose up -d gateway`.
 
+## UI
+
+Gateway serve sẵn UI tĩnh tại `https://<domain>/ui/` (cùng origin, không cần cấu hình domain hay CORS). Nhập `GATEWAY_API_KEY` một lần, lưu trong localStorage của trình duyệt. Có: danh sách account + trạng thái, account info, positions (close, sửa SL/TP), form lệnh, tick theo symbol, log sự kiện (deal, result). Muốn host UI ở domain khác thì copy thư mục `ui/` lên bất kỳ static host nào và đổi các `fetch('/...')` thành URL gateway, kèm CORS trên gateway.
+
 ## VPS Windows: một VPS = một account = trader + streamer
 
 Chuẩn bị một lần trên VPS:

@@ -132,3 +132,8 @@ async def test_trader_heartbeat_is_answered_with_hello(server):
         async with asyncio.timeout(2):
             while t.hellos < 2:  # one on connect, one per heartbeat
                 await asyncio.sleep(0.02)
+
+
+async def test_ui_is_served_same_origin(http):
+    r = await http.get("/ui/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "<title>" in r.text
