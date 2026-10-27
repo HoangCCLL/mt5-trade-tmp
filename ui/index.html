@@ -24,8 +24,9 @@
   form.row { display:flex; flex-wrap:wrap; gap:6px } form.row input { width:110px } form.row input.wide { width:160px }
   .scroll { overflow-x:auto }
   .tl { display:grid; grid-template-columns:auto auto 1fr auto; gap:4px 10px; align-items:center; font-size:12px; margin-top:10px }
-  .tl .bar { position:relative; height:14px; background:var(--line); border-radius:3px; overflow:hidden }
-  .tl .seg { position:absolute; top:0; height:100%; } .tl .ack { position:absolute; top:-2px; width:2px; height:18px; background:var(--fg) }
+  .tl .bar { position:relative; height:14px; margin-top:6px; background:var(--line); border-radius:3px }
+  .tl .seg { position:absolute; top:0; height:100%; }
+  .tl .ack { position:absolute; top:-7px; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-top:6px solid var(--accent); transform:translateX(-5px) }  /* ▼ marker above the bar: a moment, not a segment */
   .c-down { background:#60a5fa } .c-pool { background:#fbbf24 } .c-mt5 { background:#f87171 } .c-up { background:#34d399 } .c-gap { background:#a78bfa }
   .legend span { display:inline-block; margin-right:10px } .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle }
 </style>
@@ -68,7 +69,7 @@
       <th title="95% lệnh nhanh hơn con số này. Dùng để biết 'lúc xấu' là bao nhiêu">xấu (p95)</th>
       <th title="Lệnh chậm nhất trong số đã đo">chậm nhất</th></tr></thead><tbody></tbody></table>
     <div class="legend" style="margin-top:10px;color:var(--muted)" title="Mỗi thanh là một lệnh, dài theo tổng thời gian; các màu nối tiếp nhau đúng thứ tự thời gian. Vạch đen = lúc gateway nhận ack (chạy song song, không cộng vào tổng).">
-      <span><i class="c-down"></i>tới VPS</span><span><i class="c-pool"></i>chờ lượt</span><span><i class="c-mt5"></i>sàn</span><span><i class="c-up"></i>kết quả về</span><span><i class="c-gap"></i>chưa đo/gateway</span><span>▏ack</span>
+      <span><i class="c-down"></i>tới VPS</span><span><i class="c-pool"></i>chờ lượt</span><span><i class="c-mt5"></i>sàn</span><span><i class="c-up"></i>kết quả về</span><span><i class="c-gap"></i>chưa đo/gateway</span><span><i style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--accent);border-radius:0"></i>ack về (mốc, không phải đoạn)</span>
     </div>
     <div id="timeline" class="tl"></div>
   </section>
@@ -143,7 +144,7 @@ async function loadMetrics() {
       const segs = [['down', r.down], ['pool', r.pool], ['mt5', r.mt5], ['up', r.up]];
       const known = segs.reduce((a, [, v]) => a + (v || 0), 0), gap = Math.max(0, (r.total || 0) - known);
       let x = 0, html = '';
-      for (const [k, v] of segs) { if (v) { html += `<div class="seg c-${k}" style="left:${x / scale * 100}%;width:${v / scale * 100}%" title="${HOPS.find(h => h[0] === k)[1].trim()}: ${f(v)} ms"></div>`; x += v; } }
+      for (const [k, v] of segs) { if (v) { html += `<div class="seg c-${k}" style="left:${x / scale * 100}%;width:${v / scale * 100}%;border-radius:3px" title="${HOPS.find(h => h[0] === k)[1].trim()}: ${f(v)} ms"></div>`; x += v; } }
       if (gap) html += `<div class="seg c-gap" style="left:${x / scale * 100}%;width:${gap / scale * 100}%" title="chưa đo được / gateway: ${f(gap)} ms"></div>`;
       if (r.ack) html += `<div class="ack" style="left:${r.ack / scale * 100}%" title="ack về sau ${f(r.ack)} ms"></div>`;
       return `<span>${r.at ? new Date(r.at * 1000).toLocaleTimeString() : ''}</span><span>${(r.cmd || '').replace('order.', '')} ${r.status === 'done' ? '' : r.status || ''}</span><div class="bar">${html}</div><span>${f(r.total)} ms</span>`;
