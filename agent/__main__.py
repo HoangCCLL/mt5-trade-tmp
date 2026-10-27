@@ -46,6 +46,9 @@ def main():
         logging.handlers.RotatingFileHandler(root / "logs" / f"{role}.log", maxBytes=20_000_000, backupCount=2)])
 
     from agent import streamer, trader  # absolute: PyInstaller runs this file as a top-level script
+    if sys.platform == "win32":  # default 15.6 ms scheduler tick shows up as ~16 ms thread hand-off on every order
+        import ctypes
+        ctypes.windll.winmm.timeBeginPeriod(1)
     url = f"{os.environ['GATEWAY_URL']}/agents/{os.environ['ACCOUNT_ID']}/{role}"
     token = os.environ["AGENT_TOKEN"]
     while True:
