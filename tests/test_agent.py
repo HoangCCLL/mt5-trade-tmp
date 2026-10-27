@@ -175,3 +175,20 @@ async def test_streamer_emits_deal_when_broker_clock_is_ahead(server, http, mt5,
     mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": "EURUSD", "volume": 0.2,
                     "type": mt5.ORDER_TYPE_BUY, "price": 1.1, "magic": 9})
     assert dict(await task)["deal"]["magic"] == 9
+
+
+async def test_streamer_backs_off_on_stale_ticks_despite_broker_clock_offset(server, http, mt5, streamer, monkeypatch):
+    from agent import streamer as st
+    monkeypatch.setattr(st, "STALE_AFTER", 0.2)
+    monkeypatch.setattr(st, "STALE_PERIOD", 1.0)
+    mt5.clock_offset = 3 * 3600  # broker stamps ticks 3h "ahead" of the VPS clock
+    async with http.stream("GET", "/accounts/A1/stream?symbols=EURUSD") as resp:
+        async with asyncio.timeout(3):
+            async for line in resp.aiter_lines():
+                if line.startswith("event: tick"):
+                    break
+        mt5.freeze_ticks = True
+        await asyncio.sleep(0.3)
+        before = mt5.calls["symbol_info_tick"]
+        await asyncio.sleep(0.5)
+        assert mt5.calls["symbol_info_tick"] - before <= 1, "poller did not back off on stale ticks"

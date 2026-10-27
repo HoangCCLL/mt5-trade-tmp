@@ -27,7 +27,7 @@ async def poll_state(emit, period):
 
 
 async def poll_ticks(emit, subscribed: set, period):
-    loop, last_msc, due = asyncio.get_running_loop(), {}, {}
+    loop, last_msc, changed, due = asyncio.get_running_loop(), {}, {}, {}
     while True:
         now = time.time()
         for s in list(subscribed):
@@ -35,9 +35,10 @@ async def poll_ticks(emit, subscribed: set, period):
                 continue
             tick = await loop.run_in_executor(READ_POOL, mt5.symbol_info_tick, s)
             if tick and tick.time_msc != last_msc.get(s):
-                last_msc[s] = tick.time_msc
+                last_msc[s], changed[s] = tick.time_msc, now
                 emit("tick", {"symbol": s, "bid": tick.bid, "ask": tick.ask, "time_msc": tick.time_msc})
-            stale = tick is None or now - tick.time_msc / 1000 > STALE_AFTER
+            # staleness by local time since the last new tick: broker stamps are server time, not comparable to now
+            stale = tick is None or now - changed.setdefault(s, now) > STALE_AFTER
             due[s] = now + (STALE_PERIOD if stale else 0)  # weekend / illiquid symbol: back off
         await asyncio.sleep(period)
 
