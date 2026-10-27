@@ -156,3 +156,12 @@ def test_latency_breakdown_drops_hops_that_exceed_total():
     t = latency_breakdown(tm, res)
     assert t["total"] == 400.0 and t["ack"] == 59.0 and t["mt5"] == 340.0
     assert t["up"] is None and t["down"] is None  # 390 s and negative: impossible, reported as unknown
+
+
+def test_latency_breakdown_prefers_monotonic_durations_from_agent():
+    from gateway.registry import latency_breakdown
+    tm = {"t_http": 100.0, "t_sent": 100.001, "t_result": 100.4, "cmd": "order.open"}
+    res = {"t_recv": 100.002, "t_mt5_start": 100.0156, "t_mt5_end": 100.35, "t_sent": 100.351, "t_skew": 0.0,
+           "d_pool": 0.0007, "d_mt5": 0.3331}  # wall clock quantised to 15.6 ms ticks; perf_counter durations are exact
+    t = latency_breakdown(tm, res)
+    assert t["pool"] == 0.7 and t["mt5"] == 333.1

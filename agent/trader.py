@@ -68,6 +68,14 @@ def build_request(type_, p):
 def execute(cmd) -> dict:
     """Runs in a worker thread. Returns the result payload (without id)."""
     t0 = time.time()
+    cmd["_p_start"] = time.perf_counter()  # thread actually started: end of the pool wait
+    res = _execute(cmd, t0)
+    res.setdefault("t_mt5_end", time.time())
+    res["p_start"], res["d_mt5"] = cmd.get("_p_start"), time.perf_counter() - cmd.get("_p_start", time.perf_counter())
+    return res
+
+
+def _execute(cmd, t0) -> dict:
     type_, p = cmd["type"], cmd["payload"]
     if type_ == "symbols.list":  # Market Watch names; the real SDK also exposes hidden symbols, keep only visible ones
         syms = mt5.symbols_get() or ()
@@ -120,6 +128,7 @@ async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
     if cmd["type"] == "history.fill":
         res = await history_fill(cmd, emit)
     else:
+        p_recv = time.perf_counter()
         fut = asyncio.get_running_loop().run_in_executor(TRADE_POOL, execute, cmd)
         try:
             res = await asyncio.wait_for(asyncio.shield(fut), order_timeout)
@@ -129,6 +138,8 @@ async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
         except Exception as e:
             log.exception("execute failed for %s", cid)
             res = {"status": "error", "retcode": -1, "comment": f"{type(e).__name__}: {e}"}  # thread keeps running; report the real outcome when it lands
+    if res.get("p_start") is not None:
+        res["d_pool"] = res.pop("p_start") - p_recv  # monotonic: immune to the 15.6 ms Windows wall-clock tick
     res = {"id": cid, "t_recv": t_recv, "t_skew": skew, **res, "t_sent": now()}  # agent clock; gateway builds the latency breakdown
     _remember(cid, res)
     emit("result", res)

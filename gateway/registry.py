@@ -116,8 +116,9 @@ def latency_breakdown(tm: dict, res: dict) -> dict:
     hops = {
         "ack": ms(tm.get("t_ack"), tm.get("t_sent")),            # gateway -> agent -> gateway, pure gateway clock
         "down": ms(ag("t_recv"), tm.get("t_sent")),              # gateway -> agent
-        "pool": ms(ag("t_mt5_start"), ag("t_recv")),             # waiting for a trade thread
-        "mt5": ms(ag("t_mt5_end"), ag("t_mt5_start")),           # order_check + order_send at the broker
+        # intra-agent durations: prefer the agent's perf_counter values (wall clock on Windows ticks at 15.6 ms)
+        "pool": round(res["d_pool"] * 1000, 1) if res.get("d_pool") is not None else ms(ag("t_mt5_start"), ag("t_recv")),
+        "mt5": round(res["d_mt5"] * 1000, 1) if res.get("d_mt5") is not None else ms(ag("t_mt5_end"), ag("t_mt5_start")),
         "up": ms(tm.get("t_result"), ag("t_sent") or ag("t_mt5_end")),  # agent -> gateway
     }
     sane = lambda v: None if v is None or total is None or v < 0 or v > total else v  # noqa: E731
