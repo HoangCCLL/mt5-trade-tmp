@@ -25,11 +25,14 @@ def _symbol(symbol):
     return _symbol_cache[symbol]
 
 
+SYMBOL_FILLING_FOK, SYMBOL_FILLING_IOC = 1, 2  # MQL5 bit flags; the Python SDK does not export them
+
+
 def _filling(info):
     fm = info.filling_mode
-    if fm & mt5.SYMBOL_FILLING_FOK:
+    if fm & SYMBOL_FILLING_FOK:
         return mt5.ORDER_FILLING_FOK
-    if fm & mt5.SYMBOL_FILLING_IOC:
+    if fm & SYMBOL_FILLING_IOC:
         return mt5.ORDER_FILLING_IOC
     return mt5.ORDER_FILLING_RETURN
 
@@ -117,7 +120,10 @@ async def handle_command(cmd, emit, ttl, order_timeout):
             res = await asyncio.wait_for(asyncio.shield(fut), order_timeout)
         except asyncio.TimeoutError:
             emit("result", {"id": cid, "status": "unknown", "t_recv": t_recv})
-            res = await fut  # thread keeps running; report the real outcome when it lands
+            res = await fut
+        except Exception as e:
+            log.exception("execute failed for %s", cid)
+            res = {"status": "error", "retcode": -1, "comment": f"{type(e).__name__}: {e}"}  # thread keeps running; report the real outcome when it lands
     res = {"id": cid, "t_recv": t_recv, **res}
     _remember(cid, res)
     emit("result", res)

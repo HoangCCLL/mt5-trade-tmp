@@ -156,3 +156,13 @@ async def test_streamer_ticks_on_subscribe_and_dedupes(server, http, mt5, stream
         assert mt5.calls["symbol_info_tick"] > before, "poller stopped"
     with pytest.raises(TimeoutError):
         await collect(["ticks:A1:EURUSD"], lambda g: True, timeout=0.4)
+
+
+async def test_trader_reports_error_when_execute_raises(server, http, mt5, trader, monkeypatch):
+    from agent import trader as tr
+    tr._symbol_cache.clear()
+    monkeypatch.setattr(mt5, "symbol_info", lambda s: (_ for _ in ()).throw(RuntimeError("boom")))
+    t0 = time.time()
+    r = await http.post("/accounts/A1/orders", json=ORDER)
+    assert r.status_code == 200 and r.json()["status"] == "error" and "boom" in r.json()["comment"]
+    assert time.time() - t0 < 0.9  # not the gateway RESULT_TIMEOUT
