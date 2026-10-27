@@ -53,6 +53,7 @@ class FakeAgent:
         self.role, self.result_delay = role, result_delay
         self.result = result or {"status": "done", "retcode": 10009, "order": 1, "deal": 2}
         self.received: list[dict] = []
+        self.hellos = 0
         self.ws = None
         self._task = None
 
@@ -69,7 +70,8 @@ class FakeAgent:
         try:
             async for raw in self.ws:
                 msg = json.loads(raw)
-                if msg["type"] == "hello":  # clock-sync greeting, not part of the command flow under test
+                if msg["type"] == "hello":  # clock sync, not part of the command flow under test
+                    self.hellos += 1
                     continue
                 self.received.append(msg)
                 if self.role == "trader" and msg["type"].startswith("order."):

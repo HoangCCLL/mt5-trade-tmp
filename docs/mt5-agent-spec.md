@@ -85,7 +85,7 @@ Mọi message là một JSON object:
 | `order.modify` | `position (ticket), sl?, tp?` | sửa SL/TP position |
 | `history.fill` | `from? (epoch)` | backfill deals, `trader` gửi `history` theo batch 50 rồi `result{count}` |
 | `symbol.info` | `symbols: [..]` | bid/ask/digits/filling_mode tức thời |
-| `hello` | `ts (epoch gateway)` | BE gửi ngay sau khi accept socket (cả trader lẫn streamer). Agent tính `skew = ts - now()` và kiểm tra TTL trong giờ gateway, nên đồng hồ VPS lệch không làm lệnh bị từ chối |
+| `hello` | `ts (epoch gateway)` | BE gửi ngay sau khi accept socket (cả trader lẫn streamer) và trả lại sau mỗi `heartbeat` của trader, nên skew cập nhật 5 s một lần. Agent tính `skew = ts - now()` và kiểm tra TTL trong giờ gateway, nên đồng hồ VPS lệch không làm lệnh bị từ chối |
 
 Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → `magic` (uint64) và `comment` (≤ 31 ký tự, có thể bị broker ghi đè, chỉ để đọc tay).
 

@@ -17,6 +17,7 @@ async def on_trader(a: Agent, msg: dict):
         await bus.publish(f"acct:{a.account_id}", "history", p)
     elif t == "heartbeat":
         await bus.alive(a.account_id, "trader", p)
+        await a.trader.send_json(envelope("hello", {"ts": time.time()}))  # refresh the agent's clock skew every heartbeat
 
 
 async def on_streamer(a: Agent, msg: dict):

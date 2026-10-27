@@ -124,3 +124,11 @@ async def test_healthz_needs_no_api_key(server):
     async with httpx.AsyncClient(base_url=server) as c:
         r = await c.get("/healthz")
     assert r.status_code == 200 and r.json() == {"ok": True}
+
+
+async def test_trader_heartbeat_is_answered_with_hello(server):
+    async with FakeAgent(server, "A1", "trader") as t:
+        await t.send("heartbeat", {"connected": True})
+        async with asyncio.timeout(2):
+            while t.hellos < 2:  # one on connect, one per heartbeat
+                await asyncio.sleep(0.02)
