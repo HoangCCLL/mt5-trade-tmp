@@ -38,7 +38,7 @@ def main():
         logging.StreamHandler(),
         logging.handlers.RotatingFileHandler(root / "logs" / f"{role}.log", maxBytes=20_000_000, backupCount=2)])
 
-    from . import streamer, trader  # after env so MT5_FAKE is honoured
+    from agent import streamer, trader  # absolute: PyInstaller runs this file as a top-level script
     url = f"{os.environ['GATEWAY_URL']}/agents/{os.environ['ACCOUNT_ID']}/{role}"
     token = os.environ["AGENT_TOKEN"]
     while True:
