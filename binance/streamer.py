@@ -14,14 +14,15 @@ class State:
 
     def __init__(self, ex):
         self.ex, self.wallet, self.available, self.margin = ex, 0.0, 0.0, 0.0
-        self.asset = os.environ.get("BINANCE_ASSET") or None   # margin asset to report; default: the one with money in it
+        self.forced_asset = os.environ.get("BINANCE_ASSET") or None   # margin asset to report; default: the one with money in it
+        self.asset = self.forced_asset
         self.positions: dict[str, dict] = {}   # symbol -> {amt, entry, mark, upnl, leverage}
         self.orders: dict[int, dict] = {}      # NEW orders
         self.connected = False
 
     async def reconcile(self):
         balances = await self.ex.balance()
-        if self.asset is None and balances:
+        if self.forced_asset is None and balances:
             self.asset = max(balances, key=lambda b: _f(b["balance"]))["asset"]
         bal = next((b for b in balances if b["asset"] == self.asset), None)
         if bal:
