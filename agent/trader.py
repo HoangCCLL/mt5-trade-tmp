@@ -136,8 +136,10 @@ async def run(url, token, order_timeout=30.0, ttl=5.0):
 
     async def on_message(msg):
         if msg["type"] == "hello":
-            clock["skew"] = msg["payload"]["ts"] - now()
-            log.info("clock skew vs gateway: %+.3fs", clock["skew"])
+            skew = msg["payload"]["ts"] - now()
+            if abs(skew - clock["skew"]) > 1.0:  # hello arrives every heartbeat; only log real changes
+                log.info("clock skew vs gateway: %+.3fs", skew)
+            clock["skew"] = skew
             return
         await handle_command(msg, link.emit, ttl, order_timeout, skew=clock["skew"])
 

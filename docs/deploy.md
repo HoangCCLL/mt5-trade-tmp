@@ -62,16 +62,18 @@ curl -H "X-Api-Key: ..." https://$DOMAIN/accounts   # trader:true, streamer:true
 
 ## VPS Xubuntu (demo/QA): terminal dưới Wine, cùng exe
 
-Yêu cầu: user trade đang trong phiên desktop (autologin `:0`, hoặc phiên RDP; `DISPLAY` của shell sẽ được ghi vào unit). Chạy một lần:
+Đã chạy thật 2026-10-27 với Ubuntu 24.04, **Wine 11.20 (winehq-devel) + profile Windows 11 + terminal build 6286**. Wine 10.0/11.0 hoặc profile win10 làm terminal báo "A debugger has been found running in your system". Yêu cầu: một phiên desktop đang đăng nhập (xrdp hoặc console), user có sudo.
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/HoangCCLL/mt5-trade-tmp/main/deploy/vps/install-xubuntu.sh
-GATEWAY_URL=wss://<domain> ACCOUNT_ID=demo2 AGENT_TOKEN=<token> bash install-xubuntu.sh
+GATEWAY_URL=wss://<domain> ACCOUNT_ID=demo2 AGENT_TOKEN=<token> MT5_LOGIN=<login> MT5_PASSWORD="<pass>" MT5_SERVER=Broker-Demo bash install-xubuntu.sh
 ```
 
-Script: cài Wine + terminal bằng `mt5ubuntu.sh` chính thức của MetaQuotes (installer GUI, đăng nhập tài khoản rồi đóng), tải `mt5agent.exe` vào `~/.mt5/drive_c/mt5agent`, ghi `agent.env`, tạo hai systemd user unit `mt5-trader`/`mt5-streamer` (`Restart=always`, `loginctl enable-linger`), chạy `timecheck` làm smoke test rồi start. Log: `journalctl --user -fu mt5-trader` hoặc `~/.mt5/drive_c/mt5agent/logs/`. Cập nhật exe: tải đè rồi `systemctl --user restart mt5-trader mt5-streamer`.
+Script: cài WineHQ devel, tạo prefix `~/.mt5` (win11, tắt Mono/Gecko), cài MT5 silent từ `download.metatrader.com`, chép `ucrtbase.dll` gốc (numpy cần `crealf`), tải exe, ghi `agent.env`, tắt screensaver/lock, tạo ba systemd user unit `mt5-terminal` (ucrtbase builtin), `mt5-trader`, `mt5-streamer` (ucrtbase native) với `Restart=always` + linger, chạy `timecheck` rồi start.
 
-Lưu ý: terminal phải chạy trong cùng prefix và cùng `DISPLAY` với unit. Nếu dùng xrdp, `DISPLAY` đổi theo phiên; ổn định nhất là autologin `:0` + x11vnc.
+Bước tay duy nhất, một lần: trong desktop, Tools > Options > Expert Advisors > tick **Allow algorithmic trading via external Python API**. Chưa tick thì lệnh trả 10027.
+
+Vận hành: `journalctl --user -fu mt5-trader`, log file `~/.mt5/drive_c/mt5agent/logs/`. Cập nhật exe: tải đè rồi `systemctl --user restart mt5-trader mt5-streamer`. Dùng xrdp thì chỉ đóng cửa sổ RDP (disconnect), không Log Out; sau reboot phải RDP vào một lần để có lại display `:10`. Muốn tự lên sau reboot: autologin `:0` + x11vnc và đổi `DISPLAY=:0` trong ba unit.
 
 ## Checklist go-live một account
 
