@@ -227,3 +227,13 @@ async def test_order_result_includes_timing_breakdown(server, http, mt5, trader)
 async def test_symbols_endpoint_lists_market_watch(server, http, mt5, trader):
     r = await http.get("/accounts/A1/symbols")
     assert r.status_code == 200 and "EURUSD" in r.json()["symbols"]
+
+
+def test_skew_estimate_removes_one_way_delay():
+    from agent.trader import skew_estimate
+    # agent sent heartbeat at 1000.000 (its clock), gateway stamped hello 10 ms later (one-way), agent got it at 1000.020
+    assert skew_estimate(ts=1000.010, echo=1000.000, now_=1000.020, prev=None) == 0.0
+    # same path but the VPS clock is 5 s slow: gateway time = agent time + 5
+    assert abs(skew_estimate(ts=1005.010, echo=1000.000, now_=1000.020, prev=None) - 5.0) < 1e-9
+    # smoothing: a jittery sample moves the estimate only partially
+    assert 5.0 < skew_estimate(ts=1005.050, echo=1000.000, now_=1000.020, prev=5.0) < 5.04

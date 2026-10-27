@@ -109,6 +109,14 @@ async def history_fill(cmd, emit):
     return {"status": "done", "count": total}
 
 
+def skew_estimate(ts, echo, now_, prev=None, alpha=0.2):
+    """Gateway clock minus agent clock. `ts` was stamped by the gateway when it received the heartbeat the agent sent
+    at `echo`; the hello arrived at `now_`, so the gateway stamped it about half the round trip after `echo`.
+    Without that correction the estimate is off by the one-way delay. Smoothed to ride out jitter."""
+    sample = ts - (echo + (now_ - echo) / 2) if echo is not None else ts - now_
+    return sample if prev is None else prev + alpha * (sample - prev)
+
+
 async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
     cid, t_recv = cmd["id"], now()
     if cid in results:
@@ -146,16 +154,17 @@ async def run(url, token, order_timeout=30.0, ttl=5.0):
 
     async def on_message(msg):
         if msg["type"] == "hello":
-            skew = msg["payload"]["ts"] - now()
-            if abs(skew - clock["skew"]) > 1.0:  # hello arrives every heartbeat; only log real changes
+            p = msg["payload"]
+            skew = skew_estimate(p["ts"], p.get("echo"), now(), clock.get("est"))
+            if clock.get("est") is None or abs(skew - clock["skew"]) > 1.0:  # hello arrives every heartbeat; log real changes
                 log.info("clock skew vs gateway: %+.3fs", skew)
-            clock["skew"] = skew
+            clock["skew"] = clock["est"] = skew
             return
         await handle_command(msg, link.emit, ttl, order_timeout, skew=clock["skew"])
 
     await asyncio.gather(link.run(on_message),
                          heartbeat(link.emit, lambda: {"pool_busy": TRADE_POOL._work_queue.qsize(),
-                                                       "clock_skew": round(clock["skew"], 3)}))
+                                                       "clock_skew": round(clock["skew"], 3), "t": now()}))  # t echoed in hello
 
 
 if __name__ == "__main__":
