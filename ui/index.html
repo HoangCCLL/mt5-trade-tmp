@@ -23,6 +23,11 @@
   #log { font:12px/1.4 ui-monospace,monospace; max-height:260px; overflow:auto; white-space:pre-wrap; margin:0 }
   form.row { display:flex; flex-wrap:wrap; gap:6px } form.row input { width:110px } form.row input.wide { width:160px }
   .scroll { overflow-x:auto }
+  .tl { display:grid; grid-template-columns:auto auto 1fr auto; gap:4px 10px; align-items:center; font-size:12px; margin-top:10px }
+  .tl .bar { position:relative; height:14px; background:var(--line); border-radius:3px; overflow:hidden }
+  .tl .seg { position:absolute; top:0; height:100%; } .tl .ack { position:absolute; top:-2px; width:2px; height:18px; background:var(--fg) }
+  .c-down { background:#60a5fa } .c-pool { background:#fbbf24 } .c-mt5 { background:#f87171 } .c-up { background:#34d399 } .c-gap { background:#a78bfa }
+  .legend span { display:inline-block; margin-right:10px } .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle }
 </style>
 </head>
 <body>
@@ -54,14 +59,18 @@
     <form id="subs" class="row"><input name="symbols" class="wide" placeholder="EURUSD,GBPUSD" title="Danh sách symbol cách nhau bằng dấu phẩy. Chỉ stream khi có người xem, tự ngắt 30 s sau khi đóng trang"><button>Subscribe</button></form>
     <table id="ticks"><thead><tr><th>symbol</th><th title="Giá bán (sell khớp tại đây)">bid</th><th title="Giá mua (buy khớp tại đây)">ask</th><th title="Giờ tick theo đồng hồ server broker">time</th></tr></thead><tbody></tbody></table>
   </section>
-  <section class="card">
+  <section class="card" style="grid-column:1/-1">
     <h2 title="Đo trên các lệnh thật (open/close/modify) của account đang chọn. Không gồm lệnh của account khác.">Tốc độ khớp lệnh</h2>
     <div id="mstat" style="color:var(--muted);margin-bottom:6px"></div>
-    <table id="metrics"><thead><tr>
+    <table id="metrics" style="max-width:720px"><thead><tr>
       <th>chặng</th>
       <th title="Trung vị: một nửa số lệnh nhanh hơn con số này. Dùng để biết 'bình thường' là bao nhiêu">thường (p50)</th>
       <th title="95% lệnh nhanh hơn con số này. Dùng để biết 'lúc xấu' là bao nhiêu">xấu (p95)</th>
       <th title="Lệnh chậm nhất trong số đã đo">chậm nhất</th></tr></thead><tbody></tbody></table>
+    <div class="legend" style="margin-top:10px;color:var(--muted)" title="Mỗi thanh là một lệnh, dài theo tổng thời gian; các màu nối tiếp nhau đúng thứ tự thời gian. Vạch đen = lúc gateway nhận ack (chạy song song, không cộng vào tổng).">
+      <span><i class="c-down"></i>tới VPS</span><span><i class="c-pool"></i>chờ lượt</span><span><i class="c-mt5"></i>sàn</span><span><i class="c-up"></i>kết quả về</span><span><i class="c-gap"></i>chưa đo/gateway</span><span>▏ack</span>
+    </div>
+    <div id="timeline" class="tl"></div>
   </section>
   <section class="card"><h2 title="deal: khớp lệnh từ terminal. result: trả lời lệnh kèm ms từng chặng. Mới nhất ở trên">Events</h2><pre id="log"></pre></section>
 </div>
@@ -112,9 +121,9 @@ function renderState(s) {
 const HOPS = [  // key, label, hint (trader view). ms, integer. 'infra' is computed here: total minus broker.
   ['total', 'Tổng từ lúc bấm Send', 'Toàn bộ thời gian từ khi gateway nhận lệnh đến khi có kết quả. Đây là con số bạn cảm nhận.'],
   ['mt5', 'Sàn khớp lệnh', 'Thời gian broker xử lý order_check + order_send. Phần này do sàn và đường truyền VPS → sàn quyết định, hệ thống không rút ngắn được. Muốn giảm: VPS gần server sàn hơn.'],
-  ['infra', 'Hạ tầng của mình', 'Tổng trừ phần sàn: gateway, mạng gateway ↔ VPS, hàng đợi trên VPS. Phần này mình kiểm soát được; bình thường vài chục ms.'],
+  ['infra', 'Hạ tầng của mình', 'Tính riêng từng lệnh = tổng − sàn, rồi mới lấy p50, nên không bằng tổng các dòng con. Gồm: gateway, mạng gateway ↔ VPS, hàng đợi trên VPS. Phần này mình kiểm soát được; bình thường vài chục ms.'],
   ['pool', '  ↳ chờ đến lượt trên VPS', 'Lệnh đã tới VPS nhưng phải chờ thread rảnh. Tăng khi bắn nhiều lệnh cùng lúc (4 thread). Trên Windows ~16 ms là độ phân giải timer, bình thường.'],
-  ['ack', '  ↳ VPS phản hồi (vòng)', 'Gateway gửi lệnh và nhận xác nhận "đã nhận" từ VPS. Chỉ dùng đồng hồ gateway nên luôn tin được. Lớn = mạng tới VPS chậm hoặc VPS bận.'],
+  ['ack', '  ↳ VPS phản hồi (vòng)', 'Chạy song song với các chặng khác, KHÔNG cộng vào tổng. Gateway gửi lệnh và nhận xác nhận "đã nhận" từ VPS. Chỉ dùng đồng hồ gateway nên luôn tin được. Lớn = mạng tới VPS chậm hoặc VPS bận.'],
   ['down', '  ↳ mạng tới VPS', 'Một chiều gateway → VPS. Cần đồng hồ VPS đã đồng bộ; nếu trống là chưa đo được.'],
   ['up', '  ↳ kết quả về', 'Một chiều VPS → gateway. Nếu trống là chưa đo được (agent cũ hoặc đồng hồ lệch).'],
 ];
@@ -128,6 +137,16 @@ async function loadMetrics() {
     m.infra = agg(rec.map(r => r.total != null && r.mt5 != null ? r.total - r.mt5 : null));
     const f = v => v == null ? '' : Math.round(v);
     $('#metrics tbody').innerHTML = HOPS.map(([k, label, hint]) => { const v = m[k]; return `<tr><td title="${hint}" style="white-space:pre">${label}</td><td>${v ? f(v.p50) : ''}</td><td>${v ? f(v.p95) : ''}</td><td>${v ? f(v.max) : ''}</td></tr>`; }).join('');
+    const rows = rec.slice(0, 12), scale = Math.max(1, ...rows.map(r => r.total || 0));
+    $('#timeline').innerHTML = rows.map(r => {
+      const segs = [['down', r.down], ['pool', r.pool], ['mt5', r.mt5], ['up', r.up]];
+      const known = segs.reduce((a, [, v]) => a + (v || 0), 0), gap = Math.max(0, (r.total || 0) - known);
+      let x = 0, html = '';
+      for (const [k, v] of segs) { if (v) { html += `<div class="seg c-${k}" style="left:${x / scale * 100}%;width:${v / scale * 100}%" title="${HOPS.find(h => h[0] === k)[1].trim()}: ${f(v)} ms"></div>`; x += v; } }
+      if (gap) html += `<div class="seg c-gap" style="left:${x / scale * 100}%;width:${gap / scale * 100}%" title="chưa đo được / gateway: ${f(gap)} ms"></div>`;
+      if (r.ack) html += `<div class="ack" style="left:${r.ack / scale * 100}%" title="ack về sau ${f(r.ack)} ms"></div>`;
+      return `<span>${r.at ? new Date(r.at * 1000).toLocaleTimeString() : ''}</span><span>${(r.cmd || '').replace('order.', '')} ${r.status === 'done' ? '' : r.status || ''}</span><div class="bar">${html}</div><span>${f(r.total)} ms</span>`;
+    }).join('');
   } catch (e) { log('metrics error', e.message); }
 }
 
