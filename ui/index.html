@@ -102,7 +102,8 @@ async function loadAccounts() {
     if (list.some(a => a.id === cur)) $('#acct').value = cur;
     const a = list.find(x => x.id === acct());
     $('#status').innerHTML = a ? ['trader', 'streamer', 'alive'].map(k => `<span class="badge ${a[k] ? 'on' : 'off'}">${k}</span>`).join(' ') : '';
-    if (!abort || cur !== acct()) { openStream(); loadMetrics(); loadSymbols(); }  // only (re)open when the account changed; the 15 s poll must not restart the stream
+    if (!abort || cur !== acct()) { openStream(); loadMetrics(); }
+    if (!abort || cur !== acct() || $('#order').symbol.options.length <= 1) loadSymbols();  // retry while the list is still empty  // only (re)open when the account changed; the 15 s poll must not restart the stream
   } catch (e) { log('accounts error', e.message); }
 }
 
