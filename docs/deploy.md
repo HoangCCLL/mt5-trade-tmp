@@ -60,6 +60,19 @@ schtasks /Query /TN mt5-trader & schtasks /Query /TN mt5-streamer   # Running
 curl -H "X-Api-Key: ..." https://$DOMAIN/accounts   # trader:true, streamer:true, alive:true
 ```
 
+## VPS Xubuntu (demo/QA): terminal dưới Wine, cùng exe
+
+Yêu cầu: user trade đang trong phiên desktop (autologin `:0`, hoặc phiên RDP; `DISPLAY` của shell sẽ được ghi vào unit). Chạy một lần:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/HoangCCLL/mt5-trade-tmp/main/deploy/vps/install-xubuntu.sh
+GATEWAY_URL=wss://<domain> ACCOUNT_ID=demo2 AGENT_TOKEN=<token> bash install-xubuntu.sh
+```
+
+Script: cài Wine + terminal bằng `mt5ubuntu.sh` chính thức của MetaQuotes (installer GUI, đăng nhập tài khoản rồi đóng), tải `mt5agent.exe` vào `~/.mt5/drive_c/mt5agent`, ghi `agent.env`, tạo hai systemd user unit `mt5-trader`/`mt5-streamer` (`Restart=always`, `loginctl enable-linger`), chạy `timecheck` làm smoke test rồi start. Log: `journalctl --user -fu mt5-trader` hoặc `~/.mt5/drive_c/mt5agent/logs/`. Cập nhật exe: tải đè rồi `systemctl --user restart mt5-trader mt5-streamer`.
+
+Lưu ý: terminal phải chạy trong cùng prefix và cùng `DISPLAY` với unit. Nếu dùng xrdp, `DISPLAY` đổi theo phiên; ổn định nhất là autologin `:0` + x11vnc.
+
 ## Checklist go-live một account
 
 - [ ] `/accounts` thấy `alive:true` và `/accounts/<id>/state` có `connected:true`.
