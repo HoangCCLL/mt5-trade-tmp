@@ -106,16 +106,19 @@ registry = Registry()
 
 def latency_breakdown(tm: dict, res: dict) -> dict:
     """Milliseconds per hop. Gateway timestamps (tm) are gateway clock; agent timestamps (res) are agent clock
-    shifted by the skew the agent measured from `hello`. `ack` and `total` use the gateway clock only."""
+    shifted by the skew the agent measured from `hello`. `ack` and `total` use the gateway clock only.
+    A hop that is negative or longer than `total` is physically impossible (clock skew not known, old agent),
+    so it is reported as None rather than as a misleading number."""
     skew = res.get("t_skew") or 0.0
     ag = lambda k: None if res.get(k) is None else res[k] + skew  # noqa: E731
-    ms = lambda a, b: None if a is None or b is None else max(0.0, round((a - b) * 1000, 1))  # noqa: E731
-    return {
-        "cmd": tm.get("cmd"),
+    ms = lambda a, b: None if a is None or b is None else round((a - b) * 1000, 1)  # noqa: E731
+    total = ms(tm.get("t_result"), tm.get("t_http"))
+    hops = {
         "ack": ms(tm.get("t_ack"), tm.get("t_sent")),            # gateway -> agent -> gateway, pure gateway clock
         "down": ms(ag("t_recv"), tm.get("t_sent")),              # gateway -> agent
         "pool": ms(ag("t_mt5_start"), ag("t_recv")),             # waiting for a trade thread
         "mt5": ms(ag("t_mt5_end"), ag("t_mt5_start")),           # order_check + order_send at the broker
         "up": ms(tm.get("t_result"), ag("t_sent") or ag("t_mt5_end")),  # agent -> gateway
-        "total": ms(tm.get("t_result"), tm.get("t_http")),       # HTTP in -> result in
     }
+    sane = lambda v: None if v is None or total is None or v < 0 or v > total else v  # noqa: E731
+    return {"cmd": tm.get("cmd"), **{k: sane(v) for k, v in hops.items()}, "total": total}

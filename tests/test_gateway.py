@@ -146,3 +146,13 @@ async def test_metrics_endpoint_aggregates_recent_timings(server, http):
         m = (await http.get("/accounts/A1/metrics")).json()
     assert m["count"] == 3 and m["total"]["p50"] >= 50 and m["total"]["max"] >= m["total"]["p50"]
     assert len(m["recent"]) == 3 and m["recent"][0]["total"] >= 50
+
+
+def test_latency_breakdown_drops_hops_that_exceed_total():
+    from gateway.registry import latency_breakdown
+    tm = {"t_http": 100.0, "t_sent": 100.001, "t_ack": 100.06, "t_result": 100.4, "cmd": "order.open"}
+    res = {"t_recv": 100.002, "t_mt5_start": 100.01, "t_mt5_end": 100.35, "t_sent": 100.351}  # no t_skew: old agent, VPS clock off by 390 s
+    res = {k: v - 390 for k, v in res.items()}
+    t = latency_breakdown(tm, res)
+    assert t["total"] == 400.0 and t["ack"] == 59.0 and t["mt5"] == 340.0
+    assert t["up"] is None and t["down"] is None  # 390 s and negative: impossible, reported as unknown
