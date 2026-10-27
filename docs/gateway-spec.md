@@ -430,8 +430,8 @@ Mỗi `result` của `order.*` được gateway gắn thêm `timing` (ms), tính
 |---|---|---|---|
 | `ack` | gateway gửi lệnh → nhận `ack` | gateway | round trip mạng + loop agent, không phụ thuộc skew |
 | `down` | gateway gửi → agent nhận (`t_recv`) | agent + skew | mạng chiều xuống |
-| `pool` | `t_recv` → `t_mt5_start` | agent | chờ thread trong `TRADE_POOL`; tăng khi nhiều lệnh đồng thời |
-| `mt5` | `t_mt5_start` → `t_mt5_end` | agent | `order_check` + `order_send` tại broker; phần không kiểm soát được |
+| `pool` | `d_pool` (perf_counter) | agent | chờ thread trong `TRADE_POOL`; tăng khi nhiều lệnh đồng thời |
+| `mt5` | `d_mt5` (perf_counter) | agent | `order_check` + `order_send` tại broker; phần không kiểm soát được |
 | `up` | agent gửi result (`t_sent`) → gateway nhận | agent + skew | mạng chiều lên |
 | `total` | HTTP vào → result về | gateway | cái client cảm nhận |
 

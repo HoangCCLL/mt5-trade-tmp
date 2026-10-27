@@ -48,7 +48,7 @@ Song song mở `curl -N -H "X-Api-Key: $KEY" "$GW/accounts/$A/stream?symbols=EUR
 - `status:done`, `retcode:10009`; lệnh hiện trong tab Trade của terminal với magic 1001.
 - SSE: `state` có position trong < 1 s sau `done`; `deal` entry IN; sau close có `deal` entry OUT và `state` không còn position.
 - Modify: terminal hiện SL/TP mới.
-- Latency: trong `result` có `t_recv, t_mt5_start, t_mt5_end`. Ghi `t_mt5_end - t_mt5_start` (broker) và tổng thời gian curl. Mục tiêu: phần không phải broker < 50 ms.
+- Latency: trong `result` có `timing` (ms): `mt5` là broker, `total` là tổng. Mục tiêu: `total - mt5` < 50 ms.
 - Nếu `retcode 10030 INVALID_FILL`: gửi lại một lần, agent đã làm mới cache filling mode. Vẫn lỗi → báo lại để xử lý theo broker.
 
 ## 4. Đồng thời + thread-safety SDK (bước quan trọng nhất)
@@ -67,7 +67,7 @@ Nếu streamer crash hoặc trả `None` liên tục trong lúc trader gửi l�
 | Tắt adapter mạng VPS 30 s rồi bật (`Disable-NetAdapter`/`Enable-NetAdapter`) | `alive:false` sau ≤ 15 s, rồi `true`; agent log reconnect với backoff; không lệnh đôi |
 | Tắt mạng **ngay sau** khi gửi lệnh, bật lại sau 20 s | HTTP nhận 504 với `id`; sau reconnect SSE nhận `result` cùng `id`; gửi lại cùng `Idempotency-Key` → trả kết quả cũ, không đặt thêm |
 | Tạm đặt `ORDER_TIMEOUT=0.05` trong `agent.env`, restart trader, đặt lệnh | 504 rồi SSE nhận `result unknown` và sau đó `result done` cùng `id`. Trả lại 30 sau khi xong |
-| Gửi lệnh với `volume: 1000` | `status:error`, retcode từ `order_check`, không chạm broker (`t_mt5_end - t_mt5_start` ≈ 0) |
+| Gửi lệnh với `volume: 1000` | `status:error`, retcode từ `order_check`, không chạm broker (`timing.mt5` chỉ vài ms, là `order_check` tại terminal) |
 | Đóng terminal MT5 bằng tay | `state.connected:false` trong ≤ 1 s, `heartbeat` vẫn chạy; mở lại terminal → `connected:true` |
 
 ## 6. Cài scheduled task + reboot

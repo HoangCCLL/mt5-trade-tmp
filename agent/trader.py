@@ -67,37 +67,32 @@ def build_request(type_, p):
 
 def execute(cmd) -> dict:
     """Runs in a worker thread. Returns the result payload (without id)."""
-    t0 = time.time()
     cmd["_p_start"] = time.perf_counter()  # thread actually started: end of the pool wait
-    res = _execute(cmd, t0)
-    res.setdefault("t_mt5_end", time.time())
+    res = _execute(cmd)
     res["p_start"], res["d_mt5"] = cmd.get("_p_start"), time.perf_counter() - cmd.get("_p_start", time.perf_counter())
     return res
 
 
-def _execute(cmd, t0) -> dict:
+def _execute(cmd) -> dict:
     type_, p = cmd["type"], cmd["payload"]
     if type_ == "symbols.list":  # Market Watch names; the real SDK also exposes hidden symbols, keep only visible ones
         syms = mt5.symbols_get() or ()
-        return {"status": "done", "symbols": sorted(x.name for x in syms if getattr(x, "visible", True)),
-                "t_mt5_start": t0, "t_mt5_end": time.time()}
+        return {"status": "done", "symbols": sorted(x.name for x in syms if getattr(x, "visible", True))}
     if type_ == "symbol.info":
-        return {"status": "done", "symbols": {s: mt5.symbol_info_tick(s)._asdict() for s in p["symbols"]},
-                "t_mt5_start": t0, "t_mt5_end": time.time()}
+        return {"status": "done", "symbols": {s: mt5.symbol_info_tick(s)._asdict() for s in p["symbols"]}}
     req = build_request(type_, p)
     if req is None:
         return {"status": "error", "retcode": 0, "comment": "position_not_found"}
     chk = mt5.order_check(req)
     if chk.retcode not in (0, mt5.TRADE_RETCODE_DONE):
-        return {"status": "error", "retcode": chk.retcode, "comment": chk.comment, "t_mt5_start": t0, "t_mt5_end": time.time()}
+        return {"status": "error", "retcode": chk.retcode, "comment": chk.comment}
     r = mt5.order_send(req)
     if r is None:
-        return {"status": "error", "retcode": -1, "comment": str(mt5.last_error()), "t_mt5_start": t0, "t_mt5_end": time.time()}
+        return {"status": "error", "retcode": -1, "comment": str(mt5.last_error())}
     if r.retcode == mt5.TRADE_RETCODE_INVALID_FILL:
         _symbol_cache.pop(req["symbol"], None)  # refresh filling mode next time
     return {"status": "done" if r.retcode == mt5.TRADE_RETCODE_DONE else "error", "retcode": r.retcode,
-            "comment": r.comment, "order": r.order, "deal": r.deal, "price": r.price, "volume": r.volume,
-            "t_mt5_start": t0, "t_mt5_end": time.time()}
+            "comment": r.comment, "order": r.order, "deal": r.deal, "price": r.price, "volume": r.volume}
 
 
 async def history_fill(cmd, emit):

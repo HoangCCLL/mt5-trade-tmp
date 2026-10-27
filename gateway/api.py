@@ -135,8 +135,4 @@ def _agg(vals):
 async def metrics(acct: str, n: int = 100):
     """Latency breakdown (ms) of the last n commands: where the time went, per hop."""
     recent = await bus.recent_timings(acct, n)
-    for t in recent:  # entries recorded by older gateways may hold impossible hops (no skew): hide, same rule as latency_breakdown
-        for k in SEGMENTS:
-            if t.get(k) is not None and t.get("total") is not None and not 0 <= t[k] <= t["total"]:
-                t[k] = None
     return {"count": len(recent), "recent": recent, **{k: _agg(t.get(k) for t in recent) for k in SEGMENTS}}

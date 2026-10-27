@@ -95,7 +95,7 @@ Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`
 |---|---|
 | `ack` | `{ "id": command_id }` gửi ngay khi nhận, trước khi gọi MT5 |
 | `history` | `{ "batch": n, "total": m, "deals": [...] }` kết quả `history.fill` |
-| `result` | `{ "id", "status": "done"\|"error"\|"unknown"\|"rejected", "retcode", "comment", "order", "deal", "price", "volume", "t_recv", "t_mt5_start", "t_mt5_end" }` |
+| `result` | `{ "id", "status": "done"\|"error"\|"unknown"\|"rejected", "retcode", "comment", "order", "deal", "price", "volume", "t_recv", "t_skew", "t_sent", "d_pool", "d_mt5" }` |
 | `heartbeat` | `{ "connected": bool, "pool_busy": int, "clock_skew": float }` mỗi 5 s. `clock_skew` = giờ gateway trừ giờ VPS |
 
 `status`:
@@ -186,7 +186,7 @@ Refcount tick: `symbol → số SSE client đang xem`. 0 → 1: gửi `subscribe
 
 ## 10. Quan sát
 
-- Mỗi `result` mang `t_recv, t_mt5_start, t_mt5_end`; gateway thêm `t_sent, t_result`. Tính được: mạng xuống, hàng đợi pool, broker, mạng lên.
+- Mỗi `result` mang `t_recv, t_sent, t_skew` (giờ hệ thống, để so với gateway) và `d_pool, d_mt5` (perf_counter, khoảng thời gian nội bộ, không dính tick 15.6 ms của Windows); gateway thêm `t_sent, t_ack, t_result`. Tính được: mạng xuống, hàng đợi pool, broker, mạng lên.
 - Gateway đếm: command/s, p50/p95/p99 end-to-end, tỉ lệ `error/unknown/rejected`, số agent alive.
 - Log có cấu trúc (JSON một dòng), gắn `account_id` và `id` command.
 

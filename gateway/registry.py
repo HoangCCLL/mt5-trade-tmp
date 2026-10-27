@@ -116,10 +116,10 @@ def latency_breakdown(tm: dict, res: dict) -> dict:
     hops = {
         "ack": ms(tm.get("t_ack"), tm.get("t_sent")),            # gateway -> agent -> gateway, pure gateway clock
         "down": ms(ag("t_recv"), tm.get("t_sent")),              # gateway -> agent
-        # intra-agent durations: prefer the agent's perf_counter values (wall clock on Windows ticks at 15.6 ms)
-        "pool": round(res["d_pool"] * 1000, 1) if res.get("d_pool") is not None else ms(ag("t_mt5_start"), ag("t_recv")),
-        "mt5": round(res["d_mt5"] * 1000, 1) if res.get("d_mt5") is not None else ms(ag("t_mt5_end"), ag("t_mt5_start")),
-        "up": ms(tm.get("t_result"), ag("t_sent") or ag("t_mt5_end")),  # agent -> gateway
+        # intra-agent durations come as perf_counter deltas (wall clock on Windows ticks at 15.6 ms)
+        "pool": None if res.get("d_pool") is None else round(res["d_pool"] * 1000, 1),
+        "mt5": None if res.get("d_mt5") is None else round(res["d_mt5"] * 1000, 1),
+        "up": ms(tm.get("t_result"), ag("t_sent")),               # agent -> gateway
     }
     sane = lambda v: None if v is None or total is None or v < 0 or v > total else v  # noqa: E731
     return {"cmd": tm.get("cmd"), **{k: sane(v) for k, v in hops.items()}, "total": total}
