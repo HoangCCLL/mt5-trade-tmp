@@ -17,6 +17,7 @@ def main():
     if role not in ROLES:
         sys.exit("usage: python -m binance trader|streamer")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # signed URLs are noise in logs
     from . import streamer, trader
     url = f"{os.environ['GATEWAY_URL']}/agents/{os.environ['ACCOUNT_ID']}/{role}"
     token = os.environ["AGENT_TOKEN"]
