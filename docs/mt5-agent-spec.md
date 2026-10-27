@@ -85,6 +85,7 @@ Mọi message là một JSON object:
 | `order.modify` | `position (ticket), sl?, tp?` | sửa SL/TP position |
 | `history.fill` | `from? (epoch)` | backfill deals, `trader` gửi `history` theo batch 50 rồi `result{count}` |
 | `symbol.info` | `symbols: [..]` | bid/ask/digits/filling_mode tức thời |
+| `hello` | `ts (epoch gateway)` | BE gửi ngay sau khi accept socket (cả trader lẫn streamer). Agent tính `skew = ts - now()` và kiểm tra TTL trong giờ gateway, nên đồng hồ VPS lệch không làm lệnh bị từ chối |
 
 Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → `magic` (uint64) và `comment` (≤ 31 ký tự, có thể bị broker ghi đè, chỉ để đọc tay).
 
@@ -95,7 +96,7 @@ Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`
 | `ack` | `{ "id": command_id }` gửi ngay khi nhận, trước khi gọi MT5 |
 | `history` | `{ "batch": n, "total": m, "deals": [...] }` kết quả `history.fill` |
 | `result` | `{ "id", "status": "done"\|"error"\|"unknown"\|"rejected", "retcode", "comment", "order", "deal", "price", "volume", "t_recv", "t_mt5_start", "t_mt5_end" }` |
-| `heartbeat` | `{ "connected": bool, "pool_busy": int }` mỗi 5 s |
+| `heartbeat` | `{ "connected": bool, "pool_busy": int, "clock_skew": float }` mỗi 5 s. `clock_skew` = giờ gateway trừ giờ VPS |
 
 `status`:
 - `done`: `retcode == TRADE_RETCODE_DONE` (10009).
@@ -210,3 +211,13 @@ Refcount tick: `symbol → số SSE client đang xem`. 0 → 1: gửi `subscribe
 - Redis Streams cho replay equity curve.
 - HA gateway, routing command qua channel nội bộ.
 - Protobuf/gRPC thay JSON/WS nếu cần schema cứng.
+
+## Đồng hồ: ba nguồn thời gian khác nhau
+
+| Nguồn | Dùng cho | Không được dùng cho |
+|---|---|---|
+| Gateway (`ts` trong envelope, `hello`) | TTL lệnh, log latency | |
+| VPS (`time.time()`) | khoảng cách tương đối (backoff tick, prune cache) | so với `ts` gateway hoặc timestamp MT5 |
+| Broker server (tick `time`, deal `time`, tham số `history_deals_get`) | dedupe, hiển thị | so với giờ VPS/UTC. Đo được +3 h trên Pepperstone-Demo dù tài liệu nói "UTC" |
+
+`mt5agent.exe timecheck [SYMBOL]` in các offset đo thực tế; chạy ngay sau một lệnh để deal mới nhất còn tươi.
