@@ -19,14 +19,21 @@ TERMINAL="$PREFIX/drive_c/Program Files/MetaTrader 5/terminal64.exe"
 # Same steps as MetaQuotes' mt5ubuntu.sh, but non-interactive and fetching the installer from download.metatrader.com
 # (download.mql5.com served an expired certificate on 2026-10-27). WebView2 is skipped: only the built-in browser needs it.
 SETUP_URL=${SETUP_URL:-https://download.metatrader.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe}
-if ! command -v wine >/dev/null; then
-    echo ">> installing WineHQ stable"
+# Wine 11.0 makes mt5setup.exe abort with "A debugger has been found running in your system"
+# (https://www.mql5.com/en/forum/503128); 10.0 stable is the version consistently reported to work.
+WINE_VER=${WINE_VER:-10.0.0.0~noble-1}
+if ! wine --version 2>/dev/null | grep -q "^wine-${WINE_VER%%.*}\."; then
+    echo ">> installing WineHQ stable $WINE_VER"
     sudo dpkg --add-architecture i386
     sudo mkdir -pm755 /etc/apt/keyrings
     sudo wget -qO /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
     codename=$(lsb_release -cs)
     sudo wget -qNP /etc/apt/sources.list.d/ "https://dl.winehq.org/wine-builds/ubuntu/dists/$codename/winehq-$codename.sources"
-    sudo apt-get update -qq && sudo apt-get install -y -qq --install-recommends winehq-stable curl
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq --allow-downgrades --install-recommends curl \
+        winehq-stable="$WINE_VER" wine-stable="$WINE_VER" wine-stable-amd64="$WINE_VER" wine-stable-i386:i386="$WINE_VER"
+    sudo apt-mark hold winehq-stable wine-stable wine-stable-amd64 wine-stable-i386 >/dev/null
+    rm -rf "$PREFIX"   # a prefix made by another Wine version is not worth keeping before the terminal is in
 fi
 if [ ! -f "$TERMINAL" ]; then
     echo ">> creating prefix $PREFIX (win10) and installing MetaTrader 5 silently"
