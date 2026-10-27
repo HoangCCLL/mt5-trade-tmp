@@ -30,7 +30,7 @@ if ! command -v wine >/dev/null; then
 fi
 if [ ! -f "$TERMINAL" ]; then
     echo ">> creating prefix $PREFIX (win10) and installing MetaTrader 5 silently"
-    WINEPREFIX=$PREFIX WINEDEBUG=-all winecfg -v=win10
+    WINEPREFIX=$PREFIX WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=d;mshtml=d" winecfg -v=win10   # no Mono/Gecko prompts
     curl -fsSL "$SETUP_URL" -o /tmp/mt5setup.exe
     WINEPREFIX=$PREFIX WINEDEBUG=-all wine /tmp/mt5setup.exe /auto || true
     for i in $(seq 1 60); do [ -f "$TERMINAL" ] && break; sleep 5; done
