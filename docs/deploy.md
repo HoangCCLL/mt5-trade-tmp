@@ -77,6 +77,17 @@ Script: cài WineHQ devel, tạo prefix `~/.mt5` (win11, tắt Mono/Gecko), cài
 
 Bước tay duy nhất, một lần: trong desktop, Tools > Options > Expert Advisors > tick **Allow algorithmic trading via external Python API**. Chưa tick thì lệnh trả 10027.
 
+Cập nhật agent (không cần sudo):
+
+```bash
+systemctl --user stop mt5-trader mt5-streamer
+curl -fsSL -o ~/.mt5/drive_c/mt5agent/mt5agent.exe https://github.com/HoangCCLL/mt5-trade-tmp/releases/download/latest/mt5agent.exe
+systemctl --user start mt5-trader mt5-streamer
+journalctl --user -u mt5-trader -u mt5-streamer --since -1m | grep connected
+```
+
+Giới hạn đo được dưới Wine (2026-10-27): trong lúc `order_send` chạy (~280 ms tới Pepperstone), event loop của trader bị đứng, nên `ack` ≈ `mt5` và lệnh thứ hai gửi cùng lúc phải chờ lệnh trước xong. Trên Windows không có hiện tượng này (`ack` ~60 ms trong khi `mt5` 400 ms). Chấp nhận cho demo/QA; production dùng Windows.
+
 Vận hành: `journalctl --user -fu mt5-trader`, log file `~/.mt5/drive_c/mt5agent/logs/`. Cập nhật exe: tải đè rồi `systemctl --user restart mt5-trader mt5-streamer`. Dùng xrdp thì chỉ đóng cửa sổ RDP (disconnect), không Log Out; sau reboot phải RDP vào một lần để có lại display `:10`. Muốn tự lên sau reboot: autologin `:0` + x11vnc và đổi `DISPLAY=:0` trong ba unit.
 
 ## Checklist go-live một account
