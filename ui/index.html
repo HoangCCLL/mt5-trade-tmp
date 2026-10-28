@@ -23,6 +23,23 @@
   #log { font:12px/1.4 ui-monospace,monospace; max-height:260px; overflow:auto; white-space:pre-wrap; margin:0 }
   form.row { display:flex; flex-wrap:wrap; gap:6px } form.row input { width:110px } form.row input.wide { width:160px }
   .scroll { overflow-x:auto }
+  .turn { border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; background:var(--card) }
+  .turn header { margin:0 0 8px; gap:6px } .turn h3 { font-size:14px; margin:0 8px 0 0 }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted) }
+  .pill.opening, .pill.closing { color:#2563eb; border-color:#2563eb } .pill.open, .pill.mt5_only { color:var(--ok); border-color:var(--ok) }
+  .pill.closed { color:var(--muted) } .pill.force_closed, .pill.force_closing { color:#7c3aed; border-color:#7c3aed } .pill.partial, .pill.canceled { color:var(--bad); border-color:var(--bad) }
+  .flow { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:6px 10px; align-items:stretch; margin-bottom:6px }
+  .arrow { align-self:center; color:var(--muted) }
+  .chip { border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; min-width:0 }
+  .chip b { display:block; font-weight:600; margin-bottom:2px } .chip small { color:var(--muted); display:block }
+  .chip.pending { opacity:.6 } .chip.chasing, .chip.sending, .chip.closing, .chip.force_closing { border-color:#2563eb; animation:pulse 1.2s ease-in-out infinite }
+  .chip.filled, .chip.open { border-color:var(--ok) } .chip.closed { border-color:var(--line); color:var(--muted) }
+  .chip.canceled { border-color:#d97706; color:#d97706 } .chip.failed { border-color:var(--bad); color:var(--bad) }
+  .chip.exit-market { border-color:#7c3aed } .chip.exit-wmo { border-color:#0d9488 }
+  .chip button { font-size:11px; padding:2px 6px; margin-top:4px }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(37,99,235,.35) } 50% { box-shadow:0 0 0 4px rgba(37,99,235,0) } }
+  .legend2 span { display:inline-block; margin-right:12px; font-size:12px; color:var(--muted) } .legend2 i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; border:2px solid }
+  input[type=range] { vertical-align:middle }
   .tl { display:grid; grid-template-columns:auto auto 1fr auto; gap:4px 10px; align-items:center; font-size:12px; margin-top:10px }
   .tl .bar { position:relative; height:14px; margin-top:6px; background:var(--line); border-radius:3px }
   .tl .seg { position:absolute; top:0; height:100%; }
@@ -40,6 +57,21 @@
   <span id="status" title="trader: worker đặt lệnh đã nối. streamer: worker đẩy state/tick đã nối. alive: có heartbeat trong 15 s qua."></span>
 </header>
 <div class="grid">
+  <section class="card" id="turns-card" style="grid-column:1/-1; display:none">
+    <h2 title="Một turn = 2 chân Binance maker (chase) + 2 chân MT5 market hedge. Agent chạy vòng chase/WMO trên VPS, ở đây chỉ ra lệnh và xem.">Trade turns <span id="turns-set" style="font-weight:400;text-transform:none;letter-spacing:0"></span></h2>
+    <form id="turn-form" class="row" style="align-items:center">
+      <label title="Khối lượng theo đơn vị vật lý của tài sản (oz với vàng). Được quy đổi sang qty Binance và lot MT5 qua spec của từng sàn.">units <input name="units" type="number" step="any" min="0" value="1" style="width:90px"></label>
+      <label title="Leverage đặt cho cả hai account Binance trước khi vào lệnh. MT5 không quản lý leverage.">leverage <input name="leverage" type="range" min="1" max="20" value="5"> <output id="lev-out">5x</output></label>
+      <label title="Chase: dời lệnh về giá queue mới khi best price đổi, hoặc chậm nhất mỗi N ms">interval <input name="interval_ms" type="number" min="50" step="50" value="500" style="width:80px"> ms</label>
+      <span id="convert-out" style="color:var(--muted)"></span>
+      <button class="primary" id="turn-start" disabled title="Mở hai chase limit (long trên account long, short trên account short); MT5 hedge mở tự động khi từng chân Binance khớp">Start turn</button>
+    </form>
+    <div class="legend2" style="margin:8px 0">
+      <span><i style="border-color:#2563eb"></i>chasing / đang gửi (maker, dời theo giá)</span><span><i style="border-color:var(--ok)"></i>đã khớp / đang mở</span>
+      <span><i style="border-color:#d97706"></i>canceled</span><span><i style="border-color:#7c3aed"></i>Force: thoát market</span><span><i style="border-color:#0d9488"></i>thoát WMO</span><span><i style="border-color:var(--bad)"></i>failed</span>
+    </div>
+    <div id="turns"></div>
+  </section>
   <section class="card"><h2 title="Snapshot tài khoản từ streamer, cập nhật khi có thay đổi hoặc mỗi 30 s">Account</h2><div id="account" class="kv"></div></section>
   <section class="card"><h2>New order</h2>
     <form id="order" class="row">
@@ -220,6 +252,117 @@ $('#positions').addEventListener('click', async e => {
 $('#subs').addEventListener('submit', e => { e.preventDefault(); symbols = e.target.symbols.value.replace(/\s/g, ''); try { localStorage.setItem('symbols', symbols); } catch {} openStream(); });
 $('#acct').addEventListener('change', () => { openStream(); loadAccounts(); });
 $('#refresh').addEventListener('click', loadAccounts);
+
+// ---------------- trade turns ----------------
+const turns = {}; let turnSet = null, turnAbort = null, convertTimer = null;
+const tf = $('#turn-form');
+async function initTurns() {
+  if (!key()) return;
+  try { turnSet = await api('GET', '/turns/config'); } catch (e) { return; }
+  if (!turnSet || !turnSet.long) return;
+  $('#turns-card').style.display = '';
+  $('#turns-set').textContent = `· ${turnSet.long} (long) · ${turnSet.short} (short) · ${turnSet.mt5} (MT5) · ${turnSet.symbol_binance} ↔ ${turnSet.symbol_mt5}`;
+  const [lo, hi] = turnSet.leverage || [1, 125];
+  tf.leverage.min = lo; tf.leverage.max = hi; tf.leverage.value = Math.min(Math.max(+tf.leverage.value, lo), hi); $('#lev-out').textContent = tf.leverage.value + 'x';
+  for (const t of await api('GET', '/turns')) turns[t.id] = t;
+  renderTurns(); openTurnStream(); previewConvert();
+}
+tf.leverage.addEventListener('input', () => $('#lev-out').textContent = tf.leverage.value + 'x');
+tf.units.addEventListener('input', () => { clearTimeout(convertTimer); convertTimer = setTimeout(previewConvert, 300); });
+async function previewConvert() {
+  const u = +tf.units.value; if (!(u > 0)) { $('#turn-start').disabled = true; return; }
+  try {
+    const c = await api('GET', `/convert?units=${u}`);
+    $('#convert-out').innerHTML = c.ok ? `= Binance <b>${c.binance}</b> ${c.base} · MT5 <b>${c.mt5}</b> lot` : `<span style="color:var(--bad)">${c.reason}</span>`;
+    $('#turn-start').disabled = !c.ok;
+  } catch (e) { $('#convert-out').textContent = e.message; $('#turn-start').disabled = true; }
+}
+tf.addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const t = await api('POST', '/turns', {units: +tf.units.value, leverage: +tf.leverage.value, interval_ms: +tf.interval_ms.value}); turns[t.id] = t; renderTurns(); log(`turn #${t.id} started`); }
+  catch (err) { log(`turn start failed ${err.status}`, err.body); }
+});
+async function openTurnStream() {
+  if (turnAbort) turnAbort.abort();
+  turnAbort = new AbortController(); const signal = turnAbort.signal;
+  try {
+    const r = await fetch('/turns/stream', {headers: H(), signal});
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '', ev = '';
+    for (;;) {
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream: true}); let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (line.startsWith('event:')) ev = line.slice(6).trim();
+        else if (line.startsWith('data:') && ev === 'turn') { const t = JSON.parse(line.slice(5)); turns[t.id] = t; renderTurns(); }
+      }
+    }
+  } catch (e) { if (!signal.aborted) log('turn stream error', e.message); }
+  if (!signal.aborted) setTimeout(openTurnStream, 2000);
+}
+const LEGNAME = {long_in: 'BUY (long acct)', short_in: 'SELL (short acct)', mt5_short: 'MT5 SELL', mt5_long: 'MT5 BUY', long_out: 'exit SELL', short_out: 'exit BUY'};
+function chip(t, leg) {
+  const l = t.legs[leg], bn = !leg.startsWith('mt5'), cls = `chip ${l.status}` + (l.exit ? ` exit-${l.exit}` : '');
+  let detail = '';
+  if (l.status === 'chasing') detail = `@ ${fmt(l.price)} · bid ${fmt(l.best_bid)} / ask ${fmt(l.best_ask)}<br>dời ${l.moves} lần · khớp ${fmt(l.filled)}/${fmt(l.qty)}`;
+  else if (l.status === 'filled') detail = `khớp ${fmt(l.filled)} @ ${fmt(l.price)} · ${l.moves} lần dời`;
+  else if (l.status === 'open') detail = `#${l.ticket} @ ${fmt(l.price)} · ${fmt(l.qty)} lot`;
+  else if (l.status === 'closed') detail = `đã thoát (${l.exit || 'market'})`;
+  else if (l.status === 'canceled') detail = l.filled ? `huỷ, đã khớp ${fmt(l.filled)}` : 'huỷ chase';
+  else if (l.status === 'failed') detail = l.error || 'lỗi';
+  else if (l.status === 'sending' || l.status === 'closing' || l.status === 'force_closing') detail = l.status === 'sending' ? 'đang gửi market…' : 'đang đóng…';
+  else if (l.status === 'pending') detail = bn && leg.endsWith('_out') ? 'chưa thoát' : 'chờ';
+  let btn = '';
+  const inLeg = leg.endsWith('_in'), outLeg = leg.endsWith('_out');
+  if (t.status.startsWith('force')) btn = '';
+  else if (inLeg && l.status === 'chasing') btn = `<button data-leg="${leg}" title="Dừng chase, chưa vào lệnh">Cancel</button>`;
+  else if (inLeg && l.status === 'filled' && t.legs[leg.replace('_in', '_out')].status !== 'chasing') btn = `<button data-leg="${leg}" title="Thoát bằng chase limit maker (reduceOnly)">Close (maker)</button>`;
+  else if (outLeg && l.status === 'chasing') btn = `<button data-leg="${leg}" title="Dừng chase thoát, giữ vị thế">Cancel</button>`;
+  else if (!bn && l.status === 'open') btn = `<button data-leg="${leg}" title="Đóng position MT5 bằng market">Close</button>`;
+  return `<div class="${cls}" title="${l.error || ''}"><b>${LEGNAME[leg]}</b><small>${detail}</small>${btn}</div>`;
+}
+const cardHtml = {};
+function renderTurns() {
+  const list = Object.values(turns).sort((a, b) => b.id - a.id), box = $('#turns');
+  if (!list.length) { box.innerHTML = '<span style="color:var(--muted)">Chưa có turn nào</span>'; return; }
+  if (box.children.length !== list.length || [...box.children].some((el, i) => el.dataset.id != list[i].id)) { box.innerHTML = ''; for (const t of list) { const d = document.createElement('div'); d.dataset.id = t.id; box.appendChild(d); } Object.keys(cardHtml).forEach(k => delete cardHtml[k]); }
+  list.forEach((t, i) => { const html = turnCard(t); if (cardHtml[t.id] !== html) { cardHtml[t.id] = html; box.children[i].outerHTML = html; } });
+}
+function turnCard(t) {
+  return [t].map(t => {
+    const L = t.legs, done = ['closed', 'force_closed', 'canceled'].includes(t.status);
+    const wmoOk = ['long', 'short'].every(s => L[s + '_in'].status !== 'filled') && ['long', 'short'].some(s => L[s + '_out'].status === 'filled') && ['mt5_short', 'mt5_long'].some(l => L[l].status === 'open');
+    const wmoWhy = wmoOk ? 'Hai chân MT5 sẽ được agent đóng market ngay tick đầu tiên sau kỳ nghỉ cuối tuần' : 'Chỉ bật được khi cả hai chân Binance đã thoát (maker) và chân MT5 còn mở';
+    return `<div class="turn" data-id="${t.id}">
+      <header><h3>#${t.id}</h3><span class="pill ${t.status}">${t.status}</span>
+        <span>${t.units} ${t.base} · Binance ${t.volume.binance} · MT5 ${t.volume.mt5} lot · ${t.leverage}x · ${new Date(t.created * 1000).toLocaleString()}</span>
+        <span style="flex:1"></span>
+        ${done ? '' : `<label title="${wmoWhy}"><input type="checkbox" data-wmo ${t.wmo !== 'off' ? 'checked' : ''} ${wmoOk || t.wmo !== 'off' ? '' : 'disabled'}> Auto Exit WMO${t.wmo !== 'off' ? ` (${t.wmo})` : ''}</label>
+        <button data-close title="Thoát mọi chân: Binance bằng chase maker, MT5 bằng market">Close all</button>
+        <button class="danger" data-force title="Huỷ mọi chase, thoát Binance và MT5 bằng market ngay. Không hoàn tác">Force Close</button>`}
+      </header>
+      <div class="flow">${chip(t, 'long_in')}<span class="arrow">⟶</span>${chip(t, 'mt5_short')}<span class="arrow">·</span>${chip(t, 'long_out')}</div>
+      <div class="flow">${chip(t, 'short_in')}<span class="arrow">⟶</span>${chip(t, 'mt5_long')}<span class="arrow">·</span>${chip(t, 'short_out')}</div>
+    </div>`;
+  }).join('');
+}
+$('#turns').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.closest('.turn').dataset.id;
+  try {
+    if (b.dataset.leg) await api('POST', `/turns/${id}/legs/${b.dataset.leg}/close`);
+    else if (b.hasAttribute('data-close')) await api('POST', `/turns/${id}/close`);
+    else if (b.hasAttribute('data-force')) { if (!confirm(`Force close turn #${id}? Thoát market toàn bộ, không hoàn tác.`)) return; await api('POST', `/turns/${id}/force-close`); }
+  } catch (err) { log(`turn #${id} action failed ${err.status}`, err.body); }
+});
+$('#turns').addEventListener('change', async e => {
+  const c = e.target; if (!c.hasAttribute('data-wmo')) return;
+  const id = c.closest('.turn').dataset.id;
+  try { await api('POST', `/turns/${id}/wmo`, {on: c.checked}); } catch (err) { c.checked = !c.checked; log(`WMO failed ${err.status}`, err.body); }
+});
+$('#key').addEventListener('change', initTurns);
+initTurns();
+
 loadAccounts();
 setInterval(() => { if (document.visibilityState === 'visible') loadAccounts(); }, 15000);
 </script>

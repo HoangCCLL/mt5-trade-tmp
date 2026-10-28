@@ -105,6 +105,16 @@ docker compose up -d && docker compose logs -f
 
 Trên gateway thêm account vào `AGENT_TOKENS` rồi `docker compose up -d --build gateway`. Cập nhật agent: `docker compose pull && docker compose up -d`. Image build tự động khi push `main` (`build-binance-image`). API key Binance: bật Futures, tắt Withdraw, giới hạn IP về IP của VPS. Spec: `docs/binance-agent-spec.md`.
 
+## Trade turns (Binance long/short + MT5 hedge)
+
+Cấu hình một account set trong `.env` của gateway rồi build lại:
+
+```
+TURN_SET={"long":"bn_long","short":"bn_short","mt5":"demo1","symbol_binance":"XAUUSDT","symbol_mt5":"XAUUSD","leverage":[1,20]}
+```
+
+Ba account phải có trong `AGENT_TOKENS` và agent đang chạy (hai Binance, một MT5 ở hedge mode). Panel "Trade turns" trong UI chỉ hiện khi `TURN_SET` có giá trị. Luồng, trạng thái và nút bấm: `docs/trade-turn-spec.md`.
+
 ## Checklist go-live một account
 
 - [ ] `/accounts` thấy `alive:true` và `/accounts/<id>/state` có `connected:true`.

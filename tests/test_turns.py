@@ -122,3 +122,18 @@ async def test_turn_limit_is_twenty(server, http, turn_agents, monkeypatch):
     assert (await http.post("/turns", json={"units": 5, "leverage": 10})).status_code == 201
     assert (await http.post("/turns", json={"units": 5, "leverage": 10})).status_code == 409
     assert (await http.post("/turns", json={"units": 5, "leverage": 99})).status_code == 422
+
+
+async def test_closing_a_chasing_out_leg_cancels_it_and_can_be_restarted(server, http, turn_agents):
+    exl, exs, mt5 = turn_agents
+    t = await open_turn(http, exl, exs)
+    await http.post(f"/turns/{t['id']}/legs/long_in/close")
+    t = await wait_turn(http, t["id"], lambda t: t["legs"]["long_out"]["status"] == "chasing")
+    await http.post(f"/turns/{t['id']}/legs/long_out/close")          # cancel the exit chase, keep the position
+    t = await wait_turn(http, t["id"], lambda t: t["legs"]["long_out"]["status"] == "canceled")
+    assert t["legs"]["long_in"]["status"] == "filled" and exl.pos["XAUUSDT"]["amt"] == 5
+    await http.post(f"/turns/{t['id']}/legs/long_in/close")          # start a new exit chase
+    t = await wait_turn(http, t["id"], lambda t: t["legs"]["long_out"]["status"] == "chasing")
+    exl.hit_resting()
+    t = await wait_turn(http, t["id"], lambda t: t["legs"]["long_in"]["status"] == "closed")
+    assert exl.pos == {}

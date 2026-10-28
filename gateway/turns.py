@@ -193,7 +193,10 @@ async def _exit_mt5(t, leg):
 async def close(tid, legs=None):
     t = _get(tid)
     for side in ("long", "short"):
-        if legs is None or f"{side}_in" in legs or f"{side}_out" in legs:
+        out = t["legs"][f"{side}_out"]
+        if legs and f"{side}_out" in legs and out["status"] == "chasing":
+            await _cancel_chase(S()[side], out)   # "close" on a chasing exit leg = stop chasing, keep the position
+        elif legs is None or f"{side}_in" in legs or f"{side}_out" in legs:
             await _exit_binance(t, side)
     for leg in ("mt5_short", "mt5_long"):
         if legs is None or leg in legs:

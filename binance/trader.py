@@ -126,12 +126,16 @@ async def chase(ex, cmd, emit) -> dict:
                 changed.clear()
                 left = deadline - time.perf_counter()
                 if left <= 0:
+                    want = best.get(my_side)
+                    if want is None or abs(want - price) < 1e-9:   # still at the queue: keep our place, just re-check later
+                        deadline = time.perf_counter() + interval
+                        continue
                     break
                 try:
                     await asyncio.wait_for(changed.wait(), min(left, POLL))
                 except asyncio.TimeoutError:
                     pass
-                if best.get(my_side) != ref:
+                if best.get(my_side) != ref and abs((best.get(my_side) or price) - price) >= 1e-9:
                     break
                 if time.perf_counter() - last_poll >= POLL:   # fill detection: REST poll (ponytail: user stream later)
                     last_poll = time.perf_counter()
