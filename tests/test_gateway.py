@@ -164,3 +164,14 @@ def test_latency_breakdown_uses_monotonic_durations_from_agent():
     res = {"t_recv": 100.002, "t_sent": 100.351, "t_skew": 0.0, "d_pool": 0.0007, "d_mt5": 0.3331}
     t = latency_breakdown(tm, res)
     assert t["pool"] == 0.7 and t["mt5"] == 333.1
+
+
+async def test_scheduled_exits_are_resent_when_the_trader_reconnects(server, http):
+    async with FakeAgent(server, "A1", "trader", auto_reply=False) as t1:
+        r = await http.post("/accounts/A1/positions/42/close", json={"when": "market_open"})
+        assert r.status_code == 202
+        first = await t1.wait_for("order.close")
+        assert first["payload"]["position"] == 42 and first["id"] == r.json()["id"]
+    async with FakeAgent(server, "A1", "trader", auto_reply=False) as t2:   # VPS rebooted over the weekend
+        again = await t2.wait_for("order.close")
+        assert again["id"] == first["id"] and again["payload"]["when"] == "market_open"

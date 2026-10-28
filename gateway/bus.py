@@ -55,3 +55,16 @@ async def record_timing(account_id, timing: dict, keep=500):
 
 async def recent_timings(account_id, n=100):
     return [json.loads(x) for x in await r.lrange(f"metrics:{account_id}", 0, n - 1)]
+
+
+# ---- scheduled exits (order.close when=market_open): the gateway is the source of truth, agents hold them in RAM only
+async def sched_put(account_id, id_, payload):
+    await r.hset(f"sched:{account_id}", id_, json.dumps(payload))
+
+
+async def sched_all(account_id) -> dict:
+    return {k.decode() if isinstance(k, bytes) else k: json.loads(v) for k, v in (await r.hgetall(f"sched:{account_id}")).items()}
+
+
+async def sched_del(account_id, id_):
+    await r.hdel(f"sched:{account_id}", id_)

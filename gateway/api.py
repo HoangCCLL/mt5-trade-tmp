@@ -1,5 +1,5 @@
 import hmac
-import json
+import json, uuid
 from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -32,6 +32,9 @@ class OrderOpen(BaseModel):
 
 class PositionClose(BaseModel):
     volume: float | None = Field(default=None, gt=0)
+    when: Literal["market_open"] | None = None   # scheduled exit at the next weekly open (MT5); see docs/trade-turn-spec.md
+    max_spread_points: int | None = Field(default=None, ge=0)
+    deviation: int | None = Field(default=None, ge=0)
 
 
 class ChaseOrder(BaseModel):
@@ -127,13 +130,39 @@ async def cancel_order(acct: str, body: OrderCancel, idempotency_key: str | None
 async def close_position(acct: str, ticket: str, body: PositionClose | None = None,
                          idempotency_key: str | None = Header(default=None)):
     extra = body.model_dump(exclude_none=True) if body else {}
-    return await run(acct, "order.close", {"position": ticket, **extra}, idempotency_key)
+    pos = int(ticket) if ticket.isdigit() else ticket   # MT5 tickets are ints, Binance positions are symbols
+    if extra.get("when"):
+        sid = idempotency_key or str(uuid.uuid4())
+        payload = {"position": pos, **extra}
+        await bus.sched_put(acct, sid, payload)
+        try:
+            await registry.send_command(acct, "order.close", payload, id_=sid, wait=False)
+        except TraderOffline:
+            pass   # armed on (re)connect
+        return JSONResponse({"id": sid}, status_code=202)
+    return await run(acct, "order.close", {"position": pos, **extra}, idempotency_key)
+
+
+@router.get("/{acct}/scheduled")
+async def scheduled(acct: str):
+    return [{"id": k, **v} for k, v in (await bus.sched_all(acct)).items()]
+
+
+@router.delete("/{acct}/scheduled/{sid}")
+async def unschedule(acct: str, sid: str):
+    await bus.sched_del(acct, sid)
+    try:
+        r = await run(acct, "schedule.cancel", {"id": sid}, None)
+        return {"canceled": bool(r.get("canceled"))}
+    except HTTPException:
+        return {"canceled": True}   # trader offline: it will not be re-armed, nothing to cancel there
 
 
 @router.patch("/{acct}/positions/{ticket}")
 async def modify_position(acct: str, ticket: str, body: PositionModify,
                           idempotency_key: str | None = Header(default=None)):
-    return await run(acct, "order.modify", {"position": ticket, **body.model_dump(exclude_none=True)}, idempotency_key)
+    pos = int(ticket) if ticket.isdigit() else ticket
+    return await run(acct, "order.modify", {"position": pos, **body.model_dump(exclude_none=True)}, idempotency_key)
 
 
 @router.post("/{acct}/history/fill", status_code=202)

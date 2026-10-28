@@ -11,6 +11,8 @@ async def on_trader(a: Agent, msg: dict):
     t, p = msg["type"], msg["payload"]
     if t == "result":
         registry.resolve(a.account_id, p)
+        if p.get("id") and p.get("status") != "unknown":
+            await bus.sched_del(a.account_id, p["id"])   # a scheduled exit that finished (done/error/canceled)
         if p.get("timing", {}).get("cmd") in ("order.open", "order.close", "order.modify"):  # latency stats: single orders only
             await bus.record_timing(a.account_id, {"id": p["id"], "status": p.get("status"), "at": time.time(), **p["timing"]})
         await bus.publish(f"acct:{a.account_id}", "result", p)
@@ -57,6 +59,9 @@ async def agent_ws(ws: WebSocket, account_id: str, role: str):
         await old.close(code=4409)  # newest socket wins
     if role == "streamer":
         await registry.resubscribe(a)
+    if role == "trader":   # re-arm scheduled exits the agent may have lost (VPS reboot over the weekend)
+        for sid, payload in (await bus.sched_all(account_id)).items():
+            await ws.send_json(envelope("order.close", payload, sid))
     try:
         async for msg in ws.iter_json():
             await HANDLERS[role](a, msg)

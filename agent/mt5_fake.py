@@ -13,7 +13,7 @@ DEAL_ENTRY_IN, DEAL_ENTRY_OUT = 0, 1
 
 TerminalInfo = namedtuple("TerminalInfo", "connected trade_allowed")
 AccountInfo = namedtuple("AccountInfo", "login balance equity margin margin_free profit currency")
-SymbolInfo = namedtuple("SymbolInfo", "name digits point filling_mode trade_stops_level volume_min volume_step")
+SymbolInfo = namedtuple("SymbolInfo", "name digits point filling_mode trade_stops_level volume_min volume_step volume_max trade_contract_size currency_base currency_profit")
 Tick = namedtuple("Tick", "time bid ask last volume time_msc")
 Position = namedtuple("Position", "ticket time type magic symbol volume price_open sl tp price_current profit swap comment")
 Deal = namedtuple("Deal", "ticket order time time_msc type entry magic position_id symbol volume price commission swap profit comment")
@@ -73,13 +73,13 @@ def account_info():
 
 def symbols_get(group=None):
     calls["symbols_get"] += 1
-    return tuple(SymbolInfo(name=n, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK, trade_stops_level=0,
-                            volume_min=0.01, volume_step=0.01) for n in ("EURUSD", "GBPUSD", "XAUUSD"))
+    return tuple(symbol_info(n) for n in ("EURUSD", "GBPUSD", "XAUUSD"))
 
 
 def symbol_info(symbol):
-    return SymbolInfo(name=symbol, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK,
-                      trade_stops_level=0, volume_min=0.01, volume_step=0.01)
+    return SymbolInfo(name=symbol, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK, trade_stops_level=0,
+                      volume_min=0.01, volume_step=0.01, volume_max=100, trade_contract_size=100000,
+                      currency_base=symbol[:3], currency_profit=symbol[3:6])
 
 
 def symbol_select(symbol, enable=True):

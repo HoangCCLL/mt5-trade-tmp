@@ -237,3 +237,41 @@ def test_skew_estimate_removes_one_way_delay():
     assert abs(skew_estimate(ts=1005.010, echo=1000.000, now_=1000.020, prev=None) - 5.0) < 1e-9
     # smoothing: a jittery sample moves the estimate only partially
     assert 5.0 < skew_estimate(ts=1005.050, echo=1000.000, now_=1000.020, prev=5.0) < 5.04
+
+
+# ---- stage 2: symbol spec + scheduled exit at weekly market open ----
+
+async def test_mt5_symbol_spec_is_normalised(server, http, mt5, trader):
+    r = (await http.get("/accounts/A1/symbols/EURUSD")).json()
+    assert r == {"symbol": "EURUSD", "base": "EUR", "quote": "USD", "contract_size": 100000, "volume_min": 0.01,
+                 "volume_step": 0.01, "volume_max": 100, "price_step": 0.00001, "min_notional": 0}
+
+
+async def test_scheduled_close_waits_for_the_weekend_gap_then_fires(server, http, mt5, trader):
+    ticket = (await http.post("/accounts/A1/orders", json=ORDER)).json()["order"]
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "result" and d.get("when") for e, d in g), timeout=5))
+    await asyncio.sleep(0.1)
+    r = await http.post(f"/accounts/A1/positions/{ticket}/close", json={"when": "market_open", "deviation": 50})
+    assert r.status_code == 202
+    sid = r.json()["id"]
+    assert (await http.get("/accounts/A1/scheduled")).json()[0]["id"] == sid
+    await asyncio.sleep(0.5)                      # market open, ticks flowing: must NOT fire
+    assert len(mt5.positions_get()) == 1
+    mt5.freeze_ticks = True; mt5.market_closed = True   # weekend
+    await asyncio.sleep(0.3)
+    mt5.clock_offset += 48 * 3600                 # Monday: first tick is 48 h after the last one
+    mt5.freeze_ticks = False; mt5.market_closed = False
+    res = [d for e, d in await task if e == "result" and d["id"] == sid][0]
+    assert res["status"] == "done" and res["when"] == "market_open" and res["attempts"] >= 1
+    assert mt5.positions_get() == () and (await http.get("/accounts/A1/scheduled")).json() == []
+
+
+async def test_scheduled_close_can_be_canceled(server, http, mt5, trader):
+    ticket = (await http.post("/accounts/A1/orders", json=ORDER)).json()["order"]
+    sid = (await http.post(f"/accounts/A1/positions/{ticket}/close", json={"when": "market_open"})).json()["id"]
+    await asyncio.sleep(0.2)
+    r = await http.delete(f"/accounts/A1/scheduled/{sid}")
+    assert r.status_code == 200 and r.json()["canceled"] is True
+    mt5.freeze_ticks = True; await asyncio.sleep(0.3); mt5.clock_offset += 48 * 3600; mt5.freeze_ticks = False
+    await asyncio.sleep(0.5)
+    assert len(mt5.positions_get()) == 1 and (await http.get("/accounts/A1/scheduled")).json() == []

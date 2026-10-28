@@ -65,6 +65,11 @@ def build_request(type_, p):
     raise ValueError(type_)
 
 
+scheduled: dict[str, asyncio.Task] = {}   # scheduled exits (order.close when=market_open) by command id
+GAP_MS = 20 * 3600 * 1000                  # a tick this long after the previous one = first tick after the weekly close
+RETRY_CODES = {10004, 10018, 10021, 10024}  # requote, market closed, off quotes, too many requests
+
+
 def execute(cmd) -> dict:
     """Runs in a worker thread. Returns the result payload (without id)."""
     cmd["_p_start"] = time.perf_counter()  # thread actually started: end of the pool wait
@@ -78,6 +83,14 @@ def _execute(cmd) -> dict:
     if type_ == "symbols.list":  # Market Watch names; the real SDK also exposes hidden symbols, keep only visible ones
         syms = mt5.symbols_get() or ()
         return {"status": "done", "symbols": sorted(x.name for x in syms if getattr(x, "visible", True))}
+    if type_ == "symbol.spec":
+        info = _symbol(p["symbol"])
+        if info is None:
+            return {"status": "error", "retcode": 0, "comment": "unknown symbol"}
+        return {"status": "done", "spec": {"symbol": info.name, "base": info.currency_base, "quote": info.currency_profit,
+                                           "contract_size": info.trade_contract_size, "volume_min": info.volume_min,
+                                           "volume_step": info.volume_step, "volume_max": info.volume_max,
+                                           "price_step": info.point, "min_notional": 0}}
     if type_ == "symbol.info":
         return {"status": "done", "symbols": {s: mt5.symbol_info_tick(s)._asdict() for s in p["symbols"]}}
     req = build_request(type_, p)
@@ -117,10 +130,72 @@ def skew_estimate(ts, echo, now_, prev=None, alpha=0.2):
     return sample if prev is None else prev + alpha * (sample - prev)
 
 
+async def wait_market_open(cmd, emit):
+    """Scheduled exit: poll the broker tick; the first tick that is GAP_MS after the previous one is the weekly open.
+    Then close at market, retrying transient retcodes. Clock-independent: compares broker tick times with each other."""
+    cid, p, loop = cmd["id"], cmd["payload"], asyncio.get_running_loop()
+    ticket, t_recv, prev, attempts, first_tick, res = p["position"], now(), None, 0, None, None
+    try:
+        while res is None:
+            if not mt5_connected():
+                await asyncio.sleep(1)
+                continue
+            pos = await loop.run_in_executor(TRADE_POOL, lambda: mt5.positions_get(ticket=ticket))
+            if not pos:
+                res = {"status": "done", "retcode": 0, "comment": "position_not_found"}
+                break
+            tick = await loop.run_in_executor(TRADE_POOL, mt5.symbol_info_tick, pos[0].symbol)
+            if tick is None:
+                await asyncio.sleep(0.5)
+                continue
+            if first_tick is None and prev is not None and tick.time_msc - prev >= GAP_MS:
+                first_tick = tick.time_msc
+                emit("update", {"id": cid, "state": "firing", "t_first_tick": first_tick})
+            prev = tick.time_msc
+            if first_tick is None:
+                await asyncio.sleep(0.1)
+                continue
+            info = _symbol(pos[0].symbol)
+            spread = round((tick.ask - tick.bid) / info.point) if info and info.point else 0
+            if p.get("max_spread_points") and spread > p["max_spread_points"]:
+                await asyncio.sleep(0.1)
+                continue
+            attempts += 1
+            r = await loop.run_in_executor(TRADE_POOL, execute, {"type": "order.close", "payload": {"position": ticket, "deviation": p.get("deviation", 50)}})
+            if r["status"] == "done" or r.get("retcode") not in RETRY_CODES or attempts >= 4000:   # ~10 min of retries
+                res = {**r, "spread_points": spread}
+                break
+            if attempts <= 5 or attempts % 20 == 0:
+                emit("update", {"id": cid, "state": "retrying", "attempts": attempts, "retcode": r.get("retcode")})
+            await asyncio.sleep(0.15)
+    except asyncio.CancelledError:
+        res = {"status": "canceled", "retcode": 0}
+    finally:
+        scheduled.pop(cid, None)
+    res = {"id": cid, "when": "market_open", "t_recv": t_recv, "attempts": attempts, "t_first_tick": first_tick, **res, "t_sent": now()}
+    _remember(cid, res)
+    emit("result", res)
+
+
 async def handle_command(cmd, emit, ttl, order_timeout, skew=0.0):
     cid, t_recv = cmd["id"], now()
     if cid in results:
         emit("result", results[cid])
+        return
+    if cmd["type"] == "order.close" and cmd["payload"].get("when") == "market_open":
+        emit("ack", {"id": cid})
+        if cid not in scheduled:   # re-sent by the gateway after a reconnect: keep the running one
+            scheduled[cid] = asyncio.create_task(wait_market_open(cmd, emit))
+            emit("update", {"id": cid, "state": "armed", "position": cmd["payload"]["position"]})
+        return
+    if cmd["type"] == "schedule.cancel":
+        emit("ack", {"id": cid})
+        task = scheduled.pop(cmd["payload"]["id"], None)
+        if task:
+            task.cancel()
+        res = {"id": cid, "status": "done", "retcode": 0, "canceled": task is not None, "t_recv": t_recv, "t_sent": now()}
+        _remember(cid, res)
+        emit("result", res)
         return
     if t_recv + skew - float(cmd.get("ts", 0)) > ttl:  # compare in gateway time
         res = {"id": cid, "status": "rejected", "comment": "ttl_expired"}

@@ -47,10 +47,10 @@ async def http(server):
 class FakeAgent:
     """Test double speaking the agent WS protocol. Records every message received."""
 
-    def __init__(self, base, acct, role, token=None, result_delay=0.0, result=None):
+    def __init__(self, base, acct, role, token=None, result_delay=0.0, result=None, auto_reply=True):
         self.url = base.replace("http", "ws") + f"/agents/{acct}/{role}"
         self.token = token or f"tok{acct}"
-        self.role, self.result_delay = role, result_delay
+        self.role, self.result_delay, self.auto_reply = role, result_delay, auto_reply
         self.result = result or {"status": "done", "retcode": 10009, "order": 1, "deal": 2}
         self.received: list[dict] = []
         self.hellos = 0
@@ -74,7 +74,7 @@ class FakeAgent:
                     self.hellos += 1
                     continue
                 self.received.append(msg)
-                if self.role == "trader" and msg["type"].startswith("order."):
+                if self.role == "trader" and self.auto_reply and msg["type"].startswith("order."):
                     asyncio.create_task(self._reply(msg["id"]))
         except websockets.ConnectionClosed:
             pass
