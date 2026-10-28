@@ -16,11 +16,19 @@ class Link:
     def __init__(self, url, token):
         self.url, self.token = url, token
         self.outbox: asyncio.Queue = asyncio.Queue()
+        self.tasks: set[asyncio.Task] = set()   # in-flight handlers; they survive reconnects, die with run()
 
     def emit(self, type_, payload):
         self.outbox.put_nowait(envelope(type_, payload))
 
     async def run(self, on_message):
+        try:
+            await self._run(on_message)
+        finally:
+            for t in list(self.tasks):
+                t.cancel()
+
+    async def _run(self, on_message):
         backoff = 1
         while True:
             try:
@@ -31,7 +39,9 @@ class Link:
                     sender = asyncio.create_task(self._sender(ws))
                     try:
                         async for raw in ws:
-                            asyncio.create_task(self._dispatch(on_message, json.loads(raw)))
+                            t = asyncio.create_task(self._dispatch(on_message, json.loads(raw)))
+                            self.tasks.add(t)
+                            t.add_done_callback(self.tasks.discard)
                     finally:
                         sender.cancel()
             except ConnectionClosed as e:

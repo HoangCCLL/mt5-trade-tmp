@@ -65,6 +65,7 @@ async def agent_ws(ws: WebSocket, account_id: str, role: str):
     if role == "trader":   # re-arm scheduled exits the agent may have lost (VPS reboot over the weekend)
         for sid, payload in (await bus.sched_all(account_id)).items():
             await ws.send_json(envelope("order.close", payload, sid))
+        await turns.resend(account_id)   # and chases that were running on it
     try:
         async for msg in ws.iter_json():
             await HANDLERS[role](a, msg)

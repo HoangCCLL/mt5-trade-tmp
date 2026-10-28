@@ -5,23 +5,49 @@ import pytest
 os.environ["MT5_FAKE"] = "1"
 
 
+class Lab:
+    """Three agents in-process; `restart(acct)` simulates an agent process restart (exchange state survives)."""
+
+    def __init__(self, base):
+        from binance.fake import Fake
+        self.base, self.exl, self.exs, self.tasks = base, Fake(), Fake(), {}
+        for ex in (self.exl, self.exs):
+            ex.prices["XAUUSDT"] = (4000.0, 4000.5)
+
+    def _run(self, acct):
+        from binance import trader as btrader
+        from agent import trader as mtrader
+        if acct == "A3":
+            return asyncio.create_task(mtrader.run(self.base + "/agents/A3/trader", "tokA3", order_timeout=1.0, ttl=5.0))
+        ex = self.exl if acct == "A1" else self.exs
+        return asyncio.create_task(btrader.run(self.base + f"/agents/{acct}/trader", f"tok{acct}", ex, order_timeout=1.0, ttl=5.0))
+
+    async def start(self):
+        for acct in ("A1", "A2", "A3"):
+            self.tasks[acct] = self._run(acct)
+        await asyncio.sleep(0.4)
+
+    async def restart(self, acct):
+        from binance import trader as btrader
+        self.tasks[acct].cancel()
+        btrader.chases.clear()   # a new process has no running chases
+        await asyncio.sleep(0.1)
+        self.tasks[acct] = self._run(acct)
+        await asyncio.sleep(0.4)
+
+    def __iter__(self):
+        from agent.mt5_api import mt5
+        return iter((self.exl, self.exs, mt5))
+
+
 @pytest.fixture
 async def turn_agents(server):
-    from binance.fake import Fake
-    from binance import trader as btrader
-    from agent import trader as mtrader
     from agent.mt5_api import mt5
     mt5.reset()
-    exl, exs = Fake(), Fake()
-    for ex in (exl, exs):
-        ex.prices["XAUUSDT"] = (4000.0, 4000.5)
-    base = server.replace("http", "ws")
-    tasks = [asyncio.create_task(btrader.run(base + "/agents/A1/trader", "tokA1", exl, order_timeout=1.0, ttl=5.0)),
-             asyncio.create_task(btrader.run(base + "/agents/A2/trader", "tokA2", exs, order_timeout=1.0, ttl=5.0)),
-             asyncio.create_task(mtrader.run(base + "/agents/A3/trader", "tokA3", order_timeout=1.0, ttl=5.0))]
-    await asyncio.sleep(0.4)
-    yield exl, exs, mt5
-    for t in tasks:
+    lab = Lab(server.replace("http", "ws"))
+    await lab.start()
+    yield lab
+    for t in lab.tasks.values():
         t.cancel()
 
 
@@ -137,3 +163,19 @@ async def test_closing_a_chasing_out_leg_cancels_it_and_can_be_restarted(server,
     exl.hit_resting()
     t = await wait_turn(http, t["id"], lambda t: t["legs"]["long_in"]["status"] == "closed")
     assert exl.pos == {}
+
+
+async def test_chase_resumes_with_remaining_qty_after_agent_restart(server, http, turn_agents):
+    exl, exs, mt5 = turn_agents
+    tid = (await http.post("/turns", json={"units": 5, "leverage": 10, "interval_ms": 5000})).json()["id"]
+    await wait_turn(http, tid, lambda t: t["legs"]["long_in"]["status"] == "chasing")
+    exl.hit_resting(qty=2)                                   # partial fill before the crash
+    await asyncio.sleep(0.4)
+    old_order = [o for o in exl.orders.values() if o["status"] == "PARTIALLY_FILLED"][0]["orderId"]
+    await turn_agents.restart("A1")                          # agent process dies and comes back; the gateway re-sends the intent
+    t = await wait_turn(http, tid, lambda t: t["legs"]["long_in"]["status"] == "chasing" and t["legs"]["long_in"].get("order") not in (None, old_order))
+    resting = [o for o in exl.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED")]
+    assert exl.orders[old_order]["status"] == "CANCELED" and len(resting) == 1 and resting[0]["origQty"] == 3   # orphan gone, remainder re-quoted
+    exl.hit_resting()
+    t = await wait_turn(http, tid, lambda t: t["legs"]["mt5_short"]["status"] == "open")
+    assert t["legs"]["long_in"]["filled"] == 5 and exl.pos["XAUUSDT"]["amt"] == 5

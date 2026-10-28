@@ -83,8 +83,28 @@ async def _send(acct, type_, payload, t, leg, kind, status):
         l.update(status="failed", error=f"{acct}: trader offline", updated=time.time())
         return None
     cmd_index[cid] = (t["id"], leg, kind)
-    l.update(cmd=cid, kind=kind, status=status, error=None, updated=time.time())
+    l.update(cmd=cid, kind=kind, status=status, error=None, payload=payload, updated=time.time())
     return cid
+
+
+async def resend(account_id):
+    """Trader (re)connected: re-send every chase still marked running on it, same id, remaining quantity.
+    The agent ignores it if that chase is still alive; a fresh agent starts over after cancelling our orphans."""
+    for t in turns.values():
+        for side in ("long", "short"):
+            if S().get(side) != account_id:
+                continue
+            for leg in (f"{side}_in", f"{side}_out"):
+                l = t["legs"][leg]
+                if l["status"] == "chasing" and l.get("cmd") and l.get("payload"):
+                    remaining = round((l["qty"] or l["payload"]["volume"]) - (l["filled"] or 0), 8)
+                    if remaining <= 0:
+                        continue
+                    try:
+                        await registry.send_command(account_id, "order.chase", {**l["payload"], "volume": remaining}, id_=l["cmd"], wait=False)
+                        cmd_index[l["cmd"]] = (t["id"], leg, l["kind"])
+                    except TraderOffline:
+                        pass
 
 
 async def _cancel_chase(acct, l):

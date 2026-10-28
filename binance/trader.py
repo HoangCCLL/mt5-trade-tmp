@@ -82,6 +82,22 @@ async def chase(ex, cmd, emit) -> dict:
     remaining, filled, cost, moves, t0 = float(p["volume"]), 0.0, 0.0, 0, time.perf_counter()
     cancel = chases[cid] = asyncio.Event()
     best, changed = {}, asyncio.Event()
+    prefix = f"m{int(p.get('magic', 0))}-"
+    try:   # a previous agent process may have left this leg's order resting: take its fills, cancel the rest
+        for o in await ex.open_orders(symbol):
+            if str(o.get("clientOrderId", "")).startswith(prefix):
+                try:
+                    o = await ex.cancel_order(symbol, o["orderId"])
+                except BinanceError as e:
+                    if e.code != -2011:
+                        raise
+                    o = await ex.get_order(symbol, o["orderId"])
+                got = float(o.get("executedQty") or 0)
+                if got:
+                    filled, cost, remaining = round(filled + got, 8), cost + got * float(o.get("avgPrice") or o.get("price") or 0), round(remaining - got, 8)
+                    log.info("chase %s adopted %s filled from orphan order %s", cid, got, o["orderId"])
+    except BinanceError as e:
+        log.warning("orphan cleanup failed: %r", e)
 
     async def ticker():
         while True:
@@ -242,6 +258,8 @@ async def handle_command(ex, cmd, emit, ttl, order_timeout, skew=0.0):
     emit("ack", {"id": cid})
     try:
         if cmd["type"] == "order.chase":   # long-running by design: no order_timeout, ends on fill or chase.cancel
+            if cid in chases:              # re-sent by the gateway after a reconnect while this chase is still alive
+                return
             res = await chase(ex, cmd, emit)
         else:
             task = asyncio.ensure_future(execute(ex, cmd))
