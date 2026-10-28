@@ -35,14 +35,20 @@ class Registry:
         return self.agents.setdefault(account_id, Agent(account_id))
 
     # ---- commands ----
-    async def send_command(self, account_id, type_, payload, id_=None) -> dict:
+    async def send_command(self, account_id, type_, payload, id_=None, wait=True):
+        """wait=True: returns the result dict (or raises ResultTimeout). wait=False: long-running command, returns its id;
+        the result arrives later through resolve() and the account pub/sub channel."""
         a = self.get(account_id)
         if a.trader is None:
             raise TraderOffline
         msg = envelope(type_, payload, id_)
+        tm = a.timing[msg["id"]] = {"t_http": time.time(), "cmd": type_}
+        if not wait:
+            await a.trader.send_json(msg)
+            tm["t_sent"] = time.time()
+            return msg["id"]
         fut = asyncio.get_running_loop().create_future()
         a.pending[msg["id"]] = fut
-        tm = a.timing[msg["id"]] = {"t_http": time.time(), "cmd": type_}
         try:
             await a.trader.send_json(msg)
             tm["t_sent"] = time.time()
@@ -51,7 +57,6 @@ class Registry:
             raise ResultTimeout(msg["id"])
         finally:
             a.pending.pop(msg["id"], None)
-            a.timing.pop(msg["id"], None)
 
     def acked(self, account_id, id_):
         tm = self.get(account_id).timing.get(id_)
@@ -60,10 +65,13 @@ class Registry:
 
     def resolve(self, account_id, result: dict):
         a = self.get(account_id)
-        tm = a.timing.get(result.get("id"))
+        tm = a.timing.pop(result.get("id"), None)
         if tm:
             tm["t_result"] = time.time()
             result["timing"] = latency_breakdown(tm, result)
+        cutoff = time.time() - 86400   # commands that never answered: do not keep their stamps forever
+        for k in [k for k, v in a.timing.items() if v["t_http"] < cutoff]:
+            a.timing.pop(k, None)
         fut = a.pending.get(result.get("id"))
         if fut and not fut.done():
             fut.set_result(result)

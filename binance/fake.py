@@ -21,7 +21,9 @@ class Fake:
         self.events: asyncio.Queue = asyncio.Queue()
         self.calls = Counter()
         self.fail_next = None   # (code, msg) raised by the next place/cancel
+        self.reject_post_only_once = False   # next GTX order is rejected as if it would cross
         self.delay = 0.0
+        self.leverage: dict[str, int] = {}
         self._oid, self._tid = 1000, 5000
 
     # ---- helpers
@@ -38,7 +40,7 @@ class Fake:
             self.fail_next = None
             raise BinanceError(code, msg)
 
-    async def _emit_order(self, o, x, extra=None):
+    def _emit_order(self, o, x, extra=None):
         self.events.put_nowait({"e": "ORDER_TRADE_UPDATE", "E": _ms(), "T": _ms(), "o": {
             "s": o["symbol"], "c": o["clientOrderId"], "S": o["side"], "o": o["type"], "q": str(o["origQty"]),
             "p": str(o["price"]), "ap": str(o["avgPrice"]), "x": x, "X": o["status"], "i": o["orderId"],
@@ -54,7 +56,9 @@ class Fake:
     # ---- REST surface
     async def exchange_info(self):
         self.calls["exchange_info"] += 1
-        return {"symbols": [{"symbol": s, "status": "TRADING"} for s in self.prices]}
+        return {"symbols": [{"symbol": s, "status": "TRADING", "baseAsset": s[:-4], "quoteAsset": s[-4:], "filters": [
+            {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001", "maxQty": "1000"},
+            {"filterType": "PRICE_FILTER", "tickSize": "0.10"}, {"filterType": "MIN_NOTIONAL", "notional": "5"}]} for s in self.prices]}
 
     async def balance(self):
         upnl = sum(self._upnl(s, p) for s, p in self.pos.items())
@@ -69,7 +73,7 @@ class Fake:
                 for s, p in self.pos.items() if p["amt"]]
 
     async def open_orders(self, symbol=None):
-        return [o for o in self.orders.values() if o["status"] == "NEW" and (symbol is None or o["symbol"] == symbol)]
+        return [o for o in self.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED") and (symbol is None or o["symbol"] == symbol)]
 
     async def place_order(self, **p):
         self.calls["place_order"] += 1
@@ -83,14 +87,32 @@ class Fake:
              "side": side, "reduceOnly": bool(p.get("reduceOnly", False)), "closePosition": bool(p.get("closePosition", False)),
              "stopPrice": float(p.get("stopPrice") or 0), "updateTime": _ms()}
         self.orders[o["orderId"]] = o
+        if type_ == "LIMIT":
+            bid, ask = self.prices[s]
+            pm = p.get("priceMatch")
+            if pm:
+                o["price"] = (bid if side == "BUY" else ask) if pm.startswith("QUEUE") else (ask if side == "BUY" else bid)
+            crosses = (side == "BUY" and o["price"] >= ask) or (side == "SELL" and o["price"] <= bid)
+            if p.get("timeInForce") == "GTX" and (crosses or self.reject_post_only_once):
+                self.reject_post_only_once = False
+                self.orders.pop(o["orderId"])
+                raise BinanceError(-5022, "Due to the order could not be executed as maker, the Post Only order will be rejected.")
+        o["timeInForce"] = p.get("timeInForce", "GTC")
         if type_ != "MARKET":
-            await self._emit_order(o, "NEW")
+            self._emit_order(o, "NEW")
             return dict(o)
         bid, ask = self.prices[s]
-        px = ask if side == "BUY" else bid
+        qty_f, rp, fee = self._apply_fill(s, side, qty, ask if side == "BUY" else bid, o["reduceOnly"])
+        self._tid += 1
+        o.update(status="FILLED", avgPrice=ask if side == "BUY" else bid, executedQty=qty_f)
+        self._emit_order(o, "TRADE", {"l": str(qty_f), "L": str(o["avgPrice"]), "n": str(fee), "N": "USDT", "t": self._tid, "rp": str(rp)})
+        self._emit_account()
+        return dict(o)
+
+    def _apply_fill(self, s, side, qty, px, reduce_only):
         pos = self.pos.setdefault(s, {"amt": 0.0, "entry": 0.0})
         delta = qty if side == "BUY" else -qty
-        if o["reduceOnly"]:
+        if reduce_only:
             delta = max(-abs(pos["amt"]), min(abs(pos["amt"]), delta)) if pos["amt"] * delta < 0 else 0.0
         rp = 0.0
         if pos["amt"] * delta < 0:  # reducing
@@ -107,11 +129,26 @@ class Fake:
             self.pos.pop(s, None)
         fee = abs(delta) * px * 0.0004
         self.wallet -= fee
-        self._tid += 1
-        o.update(status="FILLED", avgPrice=px, executedQty=abs(delta))
-        await self._emit_order(o, "TRADE", {"l": str(abs(delta)), "L": str(px), "n": str(fee), "N": "USDT", "t": self._tid, "rp": str(rp)})
-        self._emit_account()
-        return dict(o)
+        return abs(delta), rp, fee
+
+    def hit_resting(self, qty=None):
+        """Simulate the market trading into our resting limit orders: fill `qty` (or all) at the order price."""
+        for o in list(self.orders.values()):
+            if o["status"] in ("NEW", "PARTIALLY_FILLED") and o["type"] == "LIMIT" and not o["closePosition"]:
+                remaining = o["origQty"] - o["executedQty"]
+                take = min(remaining, qty) if qty else remaining
+                qty_f, rp, fee = self._apply_fill(o["symbol"], o["side"], take, o["price"], o["reduceOnly"])
+                self._tid += 1
+                o["executedQty"] = round(o["executedQty"] + qty_f, 8)
+                o["avgPrice"] = o["price"]
+                o["status"] = "FILLED" if o["executedQty"] >= o["origQty"] - 1e-12 else "PARTIALLY_FILLED"
+                self._emit_order(o, "TRADE", {"l": str(qty_f), "L": str(o["price"]), "n": str(fee), "N": "USDT", "t": self._tid, "rp": str(rp)})
+                self._emit_account()
+
+    async def set_leverage(self, symbol, leverage):
+        self.calls["set_leverage"] += 1
+        self.leverage[symbol] = int(leverage)
+        return {"symbol": symbol, "leverage": int(leverage)}
 
     async def get_order(self, symbol, order_id):
         self.calls["get_order"] += 1
@@ -121,10 +158,10 @@ class Fake:
         self.calls["cancel_order"] += 1
         self._fail()
         o = self.orders.get(int(order_id))
-        if not o or o["status"] != "NEW":
+        if not o or o["status"] not in ("NEW", "PARTIALLY_FILLED"):
             raise BinanceError(-2011, "Unknown order sent.")
         o["status"] = "CANCELED"
-        await self._emit_order(o, "CANCELED")
+        self._emit_order(o, "CANCELED")
         return dict(o)
 
     async def listen_key(self):

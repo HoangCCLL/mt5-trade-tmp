@@ -2,7 +2,7 @@ import hmac
 import json
 from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from . import bus, config
 from .registry import registry, envelope, TraderOffline, ResultTimeout
@@ -32,6 +32,22 @@ class OrderOpen(BaseModel):
 
 class PositionClose(BaseModel):
     volume: float | None = Field(default=None, gt=0)
+
+
+class ChaseOrder(BaseModel):
+    symbol: str
+    side: Literal["buy", "sell"]
+    volume: float = Field(gt=0)
+    reduce_only: bool = False
+    interval_ms: int = Field(default=500, ge=50, le=60000)
+    magic: int = Field(default=0, ge=0)
+    turn: int | None = None
+    leg: str | None = None
+
+
+class Leverage(BaseModel):
+    symbol: str
+    leverage: int = Field(ge=1, le=125)
 
 
 class OrderCancel(BaseModel):
@@ -67,6 +83,38 @@ async def symbols(acct: str):
 @router.post("/{acct}/orders")
 async def open_order(acct: str, body: OrderOpen, idempotency_key: str | None = Header(default=None)):
     return await run(acct, "order.open", body.model_dump(exclude_none=True), idempotency_key)
+
+
+async def start(acct, type_, payload):
+    """Long-running command: 202 with the command id; the result comes back on the account stream."""
+    try:
+        return JSONResponse({"id": await registry.send_command(acct, type_, payload, wait=False)}, status_code=202)
+    except TraderOffline:
+        raise HTTPException(503, "trader offline")
+
+
+@router.post("/{acct}/orders/chase")
+async def chase_order(acct: str, body: ChaseOrder):
+    """Binance: post-only limit at the queue, moved with the best price until filled or canceled (see docs/trade-turn-spec.md)."""
+    return await start(acct, "order.chase", body.model_dump(exclude_none=True))
+
+
+@router.post("/{acct}/commands/{cmd_id}/cancel")
+async def cancel_command(acct: str, cmd_id: str):
+    return await run(acct, "chase.cancel", {"id": cmd_id}, None)
+
+
+@router.post("/{acct}/leverage")
+async def leverage(acct: str, body: Leverage):
+    return await run(acct, "account.leverage", body.model_dump(), None)
+
+
+@router.get("/{acct}/symbols/{symbol}")
+async def symbol_spec(acct: str, symbol: str):
+    r = await run(acct, "symbol.spec", {"symbol": symbol}, None)
+    if r.get("status") != "done":
+        raise HTTPException(404, r.get("comment", "unknown symbol"))
+    return r["spec"]
 
 
 @router.post("/{acct}/orders/cancel")

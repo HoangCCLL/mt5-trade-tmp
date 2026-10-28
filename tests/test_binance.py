@@ -112,3 +112,77 @@ async def test_state_follows_the_funded_margin_asset(server, http, ex, agents):
     await asyncio.sleep(0.7)  # next reconcile
     s = (await http.get("/accounts/A1/state")).json()
     assert s["account"]["currency"] == "USDC" and s["account"]["balance"] == ex.wallet
+
+
+# ---- stage 1: leverage, spec, chase ----
+
+async def test_leverage_route_sets_symbol_leverage(server, http, ex, agents):
+    r = (await http.post("/accounts/A1/leverage", json={"symbol": "BTCUSDT", "leverage": 7})).json()
+    assert r["status"] == "done" and ex.leverage["BTCUSDT"] == 7
+
+
+async def test_symbol_spec_is_normalised(server, http, ex, agents):
+    r = (await http.get("/accounts/A1/symbols/BTCUSDT")).json()
+    assert r == {"symbol": "BTCUSDT", "base": "BTC", "quote": "USDT", "contract_size": 1, "volume_min": 0.001,
+                 "volume_step": 0.001, "volume_max": 1000, "price_step": 0.1, "min_notional": 5}
+
+
+async def start_chase(http, side="buy", volume=0.01, interval_ms=100, **extra):
+    r = await http.post("/accounts/A1/orders/chase", json={"symbol": "BTCUSDT", "side": side, "volume": volume,
+                                                            "interval_ms": interval_ms, "magic": 7, **extra})
+    assert r.status_code == 202, r.text
+    return r.json()["id"]
+
+
+async def test_chase_places_post_only_at_queue_and_fills_when_hit(server, http, ex, agents):
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "result" and d.get("filled") for e, d in g)))
+    await asyncio.sleep(0.1)
+    cid = await start_chase(http)
+    await asyncio.sleep(0.15)
+    resting = [o for o in ex.orders.values() if o["status"] == "NEW"]
+    assert len(resting) == 1 and resting[0]["timeInForce"] == "GTX" and resting[0]["price"] == ex.prices["BTCUSDT"][0]  # at bid
+    ex.hit_resting()  # a seller takes our bid
+    res = [d for e, d in await task if e == "result" and d["id"] == cid][0]
+    assert res["status"] == "done" and res["filled"] == 0.01 and res["avg_price"] == ex.prices["BTCUSDT"][0]
+    assert res["moves"] >= 0 and res["timing"]["total"] > 0
+
+
+async def test_chase_moves_with_best_bid_and_can_be_canceled(server, http, ex, agents):
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "result" and "filled" in d for e, d in g)))
+    await asyncio.sleep(0.1)
+    cid = await start_chase(http, interval_ms=5000)   # long interval: only a best-price change may move it
+    await asyncio.sleep(0.15)
+    ex.prices["BTCUSDT"] = (60010.0, 60011.0)
+    await asyncio.sleep(0.3)
+    resting = [o for o in ex.orders.values() if o["status"] == "NEW"]
+    assert ex.calls["cancel_order"] >= 1 and len(resting) == 1 and resting[0]["price"] == 60010.0
+    r = await http.post(f"/accounts/A1/commands/{cid}/cancel")
+    assert r.status_code == 200
+    res = [d for e, d in await task if e == "result" and d["id"] == cid][0]
+    assert res["status"] == "canceled" and res["filled"] == 0 and res["moves"] >= 1
+    assert not [o for o in ex.orders.values() if o["status"] == "NEW"]
+
+
+async def test_chase_retries_when_post_only_would_cross(server, http, ex, agents):
+    ex.reject_post_only_once = True
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "result" and "filled" in d for e, d in g)))
+    await asyncio.sleep(0.1)
+    cid = await start_chase(http)
+    await asyncio.sleep(0.2)
+    ex.hit_resting()
+    res = [d for e, d in await task if e == "result" and d["id"] == cid][0]
+    assert res["status"] == "done" and res["filled"] == 0.01 and ex.calls["place_order"] >= 2
+
+
+async def test_chase_keeps_partial_fill_on_cancel_and_emits_updates(server, http, ex, agents):
+    task = asyncio.create_task(collect(["acct:A1"], lambda g: any(e == "result" and "filled" in d for e, d in g)))
+    await asyncio.sleep(0.1)
+    cid = await start_chase(http, volume=0.04, interval_ms=5000)
+    await asyncio.sleep(0.15)
+    ex.hit_resting(qty=0.01)   # partial
+    await asyncio.sleep(0.1)
+    await http.post(f"/accounts/A1/commands/{cid}/cancel")
+    got = await task
+    res = [d for e, d in got if e == "result" and d["id"] == cid][0]
+    assert res["status"] == "canceled" and res["filled"] == 0.01 and res["remaining"] == 0.03
+    assert any(e == "update" and d["id"] == cid and d["price"] for e, d in got)

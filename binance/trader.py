@@ -6,7 +6,9 @@ from .exchange import BinanceError
 
 now = time.time
 results: OrderedDict = OrderedDict()
-_symbols_cache = {"at": 0.0, "symbols": []}
+_symbols_cache = {"at": 0.0, "symbols": [], "info": {}}
+chases: dict[str, asyncio.Event] = {}   # running chase command id -> cancel flag
+EPS = 1e-9
 
 
 def _remember(cid, res):
@@ -52,15 +54,121 @@ async def _position_amt(ex, symbol):
     return 0.0
 
 
+async def _symbols(ex):
+    if now() - _symbols_cache["at"] > 3600:
+        info = await ex.exchange_info()
+        _symbols_cache.update(at=now(), info={s["symbol"]: s for s in info["symbols"]},
+                              symbols=sorted(s["symbol"] for s in info["symbols"] if s.get("status") == "TRADING"))
+    return _symbols_cache
+
+
+def _spec(sym):
+    """Exchange-neutral symbol spec (same schema as the MT5 agent): quantity is in units of `base`, 1 unit per contract."""
+    f = {x["filterType"]: x for x in sym.get("filters", [])}
+    lot, pf, mn = f.get("LOT_SIZE", {}), f.get("PRICE_FILTER", {}), f.get("MIN_NOTIONAL", {})
+    return {"symbol": sym["symbol"], "base": sym["baseAsset"], "quote": sym["quoteAsset"], "contract_size": 1,
+            "volume_min": float(lot.get("minQty", 0)), "volume_step": float(lot.get("stepSize", 0)), "volume_max": float(lot.get("maxQty", 0)),
+            "price_step": float(pf.get("tickSize", 0)), "min_notional": float(mn.get("notional", 0))}
+
+
+async def chase(ex, cmd, emit) -> dict:
+    """Post-only limit at the best price on our side, moved whenever that price changes (or every interval_ms),
+    until filled or canceled by `chase.cancel`. Partial fills are kept; only the remainder is re-quoted."""
+    p, cid = cmd["payload"], cmd["id"]
+    symbol, side = p["symbol"], "BUY" if p["side"] == "buy" else "SELL"
+    interval = float(p.get("interval_ms", 500)) / 1000
+    remaining, filled, cost, moves, t0 = float(p["volume"]), 0.0, 0.0, 0, time.perf_counter()
+    cancel = chases[cid] = asyncio.Event()
+    best, changed = {}, asyncio.Event()
+
+    async def ticker():
+        while True:
+            try:
+                async for t in ex.book_ticker([symbol]):
+                    best.update(bid=float(t["b"]), ask=float(t["a"]))
+                    changed.set()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("bookTicker error during chase: %r", e)
+                await asyncio.sleep(1)
+
+    tk = asyncio.create_task(ticker())
+    my_side = "bid" if side == "BUY" else "ask"
+    try:
+        while remaining > EPS and not cancel.is_set():
+            params = {"symbol": symbol, "side": side, "type": "LIMIT", "timeInForce": "GTX", "priceMatch": "QUEUE",
+                      "quantity": round(remaining, 8), "newClientOrderId": _client_id(p)}
+            if p.get("reduce_only"):
+                params["reduceOnly"] = "true"
+            try:
+                o = await ex.place_order(**params)
+            except BinanceError as e:
+                if e.code == -5022:       # would take liquidity: the book moved into us, re-quote at the new queue
+                    moves += 1
+                    await asyncio.sleep(0.05)
+                    continue
+                if e.code == -1015:       # order rate limit
+                    await asyncio.sleep(2)
+                    continue
+                raise
+            if o.get("status") == "EXPIRED":
+                moves += 1
+                continue
+            price, ref = float(o["price"]), best.get(my_side)
+            emit("update", {"id": cid, "turn": p.get("turn"), "leg": p.get("leg"), "order": o["orderId"], "price": price,
+                            "best_bid": best.get("bid"), "best_ask": best.get("ask"), "filled": filled, "remaining": remaining,
+                            "moves": moves, "elapsed_ms": round((time.perf_counter() - t0) * 1000)})
+            deadline = time.perf_counter() + interval
+            while not cancel.is_set():
+                changed.clear()
+                left = deadline - time.perf_counter()
+                if left <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(changed.wait(), left)
+                except asyncio.TimeoutError:
+                    break
+                if best.get(my_side) != ref:
+                    break
+            cur = await ex.get_order(symbol, o["orderId"])
+            if cur["status"] not in ("FILLED", "CANCELED", "EXPIRED"):
+                try:
+                    cur = await ex.cancel_order(symbol, o["orderId"])
+                except BinanceError as e:
+                    if e.code != -2011:
+                        raise
+                    cur = await ex.get_order(symbol, o["orderId"])   # filled while we were canceling
+            got = float(cur.get("executedQty") or 0)
+            if got:
+                filled, cost, remaining = round(filled + got, 8), cost + got * float(cur.get("avgPrice") or price), round(remaining - got, 8)
+            if remaining > EPS and not cancel.is_set():
+                moves += 1
+    finally:
+        tk.cancel()
+        chases.pop(cid, None)
+    return {"status": "done" if remaining <= EPS else "canceled", "retcode": 0, "filled": filled, "remaining": max(remaining, 0.0),
+            "avg_price": round(cost / filled, 8) if filled else None, "volume": filled, "price": round(cost / filled, 8) if filled else None,
+            "moves": moves, "elapsed_ms": round((time.perf_counter() - t0) * 1000), "turn": p.get("turn"), "leg": p.get("leg")}
+
+
 async def execute(ex, cmd) -> dict:
     type_, p = cmd["type"], cmd["payload"]
     p0 = time.perf_counter()
     try:
         if type_ == "symbols.list":
-            if now() - _symbols_cache["at"] > 3600:
-                info = await ex.exchange_info()
-                _symbols_cache.update(at=now(), symbols=sorted(s["symbol"] for s in info["symbols"] if s.get("status") == "TRADING"))
-            res = {"status": "done", "symbols": _symbols_cache["symbols"]}
+            res = {"status": "done", "symbols": (await _symbols(ex))["symbols"]}
+        elif type_ == "symbol.spec":
+            sym = (await _symbols(ex))["info"].get(p["symbol"])
+            res = {"status": "done", "spec": _spec(sym)} if sym else {"status": "error", "retcode": 0, "comment": "unknown symbol"}
+        elif type_ == "account.leverage":
+            r = await ex.set_leverage(p["symbol"], p["leverage"])
+            res = {"status": "done", "retcode": 0, "leverage": int(r.get("leverage", p["leverage"]))}
+        elif type_ == "chase.cancel":
+            ev = chases.get(p["id"])
+            if ev:
+                ev.set()
+            res = {"status": "done", "retcode": 0, "canceled": ev is not None}
         elif type_ == "order.open":
             side = "BUY" if p["side"] == "buy" else "SELL"
             params = {"symbol": p["symbol"], "side": side, "quantity": p["volume"], "newClientOrderId": _client_id(p),
@@ -120,12 +228,16 @@ async def handle_command(ex, cmd, emit, ttl, order_timeout, skew=0.0):
         emit("result", res)
         return
     emit("ack", {"id": cid})
-    task = asyncio.ensure_future(execute(ex, cmd))
     try:
-        res = await asyncio.wait_for(asyncio.shield(task), order_timeout)
-    except asyncio.TimeoutError:
-        emit("result", {"id": cid, "status": "unknown", "t_recv": t_recv})
-        res = await task
+        if cmd["type"] == "order.chase":   # long-running by design: no order_timeout, ends on fill or chase.cancel
+            res = await chase(ex, cmd, emit)
+        else:
+            task = asyncio.ensure_future(execute(ex, cmd))
+            try:
+                res = await asyncio.wait_for(asyncio.shield(task), order_timeout)
+            except asyncio.TimeoutError:
+                emit("result", {"id": cid, "status": "unknown", "t_recv": t_recv})
+                res = await task
     except Exception as e:
         log.exception("execute failed for %s", cid)
         res = {"status": "error", "retcode": -1, "comment": f"{type(e).__name__}: {e}"}

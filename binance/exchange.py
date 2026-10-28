@@ -58,6 +58,9 @@ class Binance:
     async def cancel_order(self, symbol, order_id):
         return await self._call("DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
 
+    async def set_leverage(self, symbol, leverage):
+        return await self._call("POST", "/fapi/v1/leverage", {"symbol": symbol, "leverage": int(leverage)})
+
     async def listen_key(self):
         return (await self._call("POST", "/fapi/v1/listenKey", signed=False))["listenKey"]
 
