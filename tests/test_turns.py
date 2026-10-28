@@ -87,6 +87,7 @@ async def test_turn_opens_mt5_hedges_as_binance_chases_fill(server, http, turn_a
     assert t["legs"]["long_in"]["status"] == "filled" and t["legs"]["long_in"]["filled"] == 5
     pos = mt5.positions_get()
     assert len(pos) == 1 and pos[0].type == 1 and pos[0].volume == 0.05 and pos[0].magic == tid and pos[0].ticket == t["legs"]["mt5_short"]["ticket"]
+    assert pos[0].comment == ""   # no comment on MT5 orders: the link is the ticket stored on the leg (brokers may overwrite comments)
     exs.hit_resting()                                                   # short filled -> MT5 buy
     t = await wait_turn(http, tid, lambda t: t["status"] == "open")
     assert t["legs"]["mt5_long"]["status"] == "open" and len(mt5.positions_get()) == 2

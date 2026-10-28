@@ -361,15 +361,16 @@ BLOCKS.accounts = () => {
 function acctBlock(role, id) {
   const a = S.accounts[id], st = S.state[id], ac = st?.account || {}, mt = role === 'mt5';
   const tag = magic => magic && S.turns[magic] ? ` <span class="pill">#${magic}</span>` : '';
+  const byTicket = ticket => { for (const t of Object.values(S.turns)) for (const [leg, l] of Object.entries(t.legs)) if (l.ticket != null && String(l.ticket) === String(ticket)) return ` <span class="pill" title="${leg}">#${t.id}</span>`; return ''; };   // MT5 link = ticket stored on the leg; magic only as fallback
   const turnOf = client => { const m = /^m(\d+)-/.exec(client || ''); return m ? tag(+m[1]) : ''; };
   const pos = (st?.positions || []).map(p => `<tr><td>${p.symbol}</td><td>${p.type === 0 ? 'BUY' : 'SELL'}</td><td class="num">${fmt(p.volume)}</td><td class="num">${fmt(p.price_open)}</td><td class="num">${fmt(p.price_current)}</td><td class="num ${pn(p.profit)}">${money(p.profit)}</td>
-    <td class="num">${p.sl ? fmt(p.sl) : '·'} / ${p.tp ? fmt(p.tp) : '·'}</td>${mt ? `<td class="num">${money(p.swap)}</td><td>${tag(p.magic)}${p.ticket ? ` <span class="muted">#${p.ticket}</span>` : ''}</td>` : `<td class="num">${p.liquidation ? fmt(p.liquidation, 2) : '·'}</td><td class="num">${p.leverage || '·'}x</td>`}</tr>`).join('');
+    <td class="num">${p.sl ? fmt(p.sl) : '·'} / ${p.tp ? fmt(p.tp) : '·'}</td>${mt ? `<td class="num">${money(p.swap)}</td><td>${byTicket(p.ticket) || tag(p.magic)}${p.ticket ? ` <span class="muted">#${p.ticket}</span>` : ''}</td>` : `<td class="num">${p.liquidation ? fmt(p.liquidation, 2) : '·'}</td><td class="num">${p.leverage || '·'}x</td>`}</tr>`).join('');
   const ords = mt
     ? S.sched.map(s => { const t = Object.values(S.turns).find(t => Object.values(t.wmo_ids || {}).includes(s.id));
         return `<tr><td>WMO</td><td>close #${s.position}</td><td colspan="3" class="muted">đóng ở tick đầu sau cuối tuần${t ? tag(t.id) : ''}</td></tr>`; }).join('')
     : (st?.orders || []).map(o => `<tr><td>${o.symbol}</td><td>${o.side.toUpperCase()} ${o.type}</td><td class="num">${fmt(o.price)}</td><td class="num">${fmt(o.filled)}/${fmt(o.qty)}</td><td>${turnOf(o.client)} <span class="muted">${o.client || ''}</span></td></tr>`).join('');
   const deals = (S.deals[id] || []).slice(0, 20).map(d => mt
-    ? `<tr><td class="muted" title="giờ server broker">${d.time ? new Date(d.time * 1000).toISOString().slice(11, 19) : '·'}</td><td>${d.symbol || ''}</td><td>${d.type === 0 ? 'BUY' : d.type === 1 ? 'SELL' : d.type} ${d.entry === 1 ? 'out' : 'in'}</td><td class="num">${fmt(d.volume)}</td><td class="num">${fmt(d.price)}</td><td class="num ${pn(d.profit)}">${money(d.profit)}</td><td class="num">${money((d.commission || 0) + (d.swap || 0))}</td><td>${tag(d.magic)}</td></tr>`
+    ? `<tr><td class="muted" title="giờ server broker">${d.time ? new Date(d.time * 1000).toISOString().slice(11, 19) : '·'}</td><td>${d.symbol || ''}</td><td>${d.type === 0 ? 'BUY' : d.type === 1 ? 'SELL' : d.type} ${d.entry === 1 ? 'out' : 'in'}</td><td class="num">${fmt(d.volume)}</td><td class="num">${fmt(d.price)}</td><td class="num ${pn(d.profit)}">${money(d.profit)}</td><td class="num">${money((d.commission || 0) + (d.swap || 0))}</td><td>${byTicket(d.position_id) || tag(d.magic)}</td></tr>`
     : `<tr><td class="muted">${hhmmss(d.time_msc)}</td><td>${d.symbol}</td><td>${(d.side || '').toUpperCase()} ${d.entry === 1 ? 'out' : 'in'}</td><td class="num">${fmt(d.volume)}</td><td class="num">${fmt(d.price)}</td><td class="num ${pn(d.profit)}">${money(d.profit)}</td><td class="num">${money(d.commission)}</td><td>${tag(d.magic)}</td></tr>`).join('');
   const ok = a && a.trader && a.alive;
   return `<section class="block acct" data-block="acct-${role}">

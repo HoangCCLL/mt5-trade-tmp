@@ -44,7 +44,7 @@ def build_request(type_, p):
         return {"action": mt5.TRADE_ACTION_DEAL, "symbol": p["symbol"], "volume": float(p["volume"]),
                 "type": mt5.ORDER_TYPE_BUY if buy else mt5.ORDER_TYPE_SELL,
                 "price": tick.ask if buy else tick.bid, "sl": float(p.get("sl") or 0), "tp": float(p.get("tp") or 0),
-                "deviation": int(p.get("deviation", 20)), "magic": int(p["magic"]), "comment": p.get("comment") or "",
+                "deviation": int(p.get("deviation", 20)), "magic": int(p["magic"]), **({"comment": p["comment"]} if p.get("comment") else {}),
                 "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling(info)}
     pos = mt5.positions_get(ticket=int(p["position"]))
     if not pos:

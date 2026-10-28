@@ -176,8 +176,9 @@ async def _open_hedge(t, side):
     leg = HEDGE[side]
     qty = t["volume"]["mt5"]
     t["legs"][leg]["qty"] = qty
-    await _send(S()["mt5"], "order.open", {"symbol": S()["symbol_mt5"], "side": SIDES[side][1], "volume": qty, "magic": t["id"],
-                                           "comment": f"t{t['id']}-{leg}"}, t, leg, "mt5_open", "sending")
+    # no comment on the MT5 order: brokers may overwrite it; the link is the ticket stored on this leg (and magic = turn id)
+    await _send(S()["mt5"], "order.open", {"symbol": S()["symbol_mt5"], "side": SIDES[side][1], "volume": qty, "magic": t["id"]},
+                t, leg, "mt5_open", "sending")
 
 
 async def _exit_binance(t, side, force=False):

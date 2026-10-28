@@ -50,7 +50,9 @@ Trạng thái chân: `pending → chasing → filled | canceled | failed` (Binan
 Quy tắc:
 - Close một chân Binance **đang chase** = cancel chase (chưa có gì để thoát). Đã khớp một phần = cancel rồi mở out-leg cho phần đã khớp.
 - Mỗi chân MT5 chỉ mở khi chân Binance cùng cặp báo `filled`; nếu MT5 trả lỗi thì chân `failed`, turn `partial`, UI nổi cảnh báo, không tự retry.
-- `magic` MT5 = số thứ tự turn, `comment` = `t{turn}-{leg}`; Binance `newClientOrderId` = `t{turn}-{leg}-{8 hex}`; đủ để đối chiếu từ deal/user stream.
+- Link lệnh ↔ turn: Binance `newClientOrderId = m{turn}-{8 hex}` (do agent sinh, bất biến, có trên mọi order/trade event; prefix `m{turn}-`
+  dùng để dọn lệnh mồ côi). MT5: **không gửi comment** (broker có thể ghi đè), `magic` = số turn; link chính là `ticket` mà gateway lưu trên leg
+  (`turn:{id}.legs.*.ticket`, Redis). UI tra ticket → turn/leg từ state turn, `magic` chỉ là fallback.
 - Thoát Binance bằng market chỉ qua Force Close, và Force luôn tear down toàn bộ turn.
 
 ## 4. `order.chase` (Binance agent)
