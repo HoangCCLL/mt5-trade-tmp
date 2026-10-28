@@ -80,14 +80,14 @@ Mọi message là một JSON object:
 
 | type | payload | ghi chú |
 |---|---|---|
-| `order.open` | `symbol, side ("buy"/"sell"), volume, sl?, tp?, magic, deviation?` | market order; không bao giờ gửi `comment` (broker ghi đè được), `magic` là nhãn duy nhất phía broker |
+| `order.open` | `symbol, side ("buy"/"sell"), volume, sl?, tp?, deviation?` | market order; agent không đặt `magic` lẫn `comment`: lệnh lên broker giống hệt lệnh đánh tay trên terminal (magic 0). Kết quả (ticket/deal hoặc lỗi) trả về ngay trên `result`, gateway lưu ticket để link |
 | `order.close` | `position (ticket), volume?` | `volume` thiếu = đóng hết |
 | `order.modify` | `position (ticket), sl?, tp?` | sửa SL/TP position |
 | `history.fill` | `from? (epoch)` | backfill deals, `trader` gửi `history` theo batch 50 rồi `result{count}` |
 | `symbol.info` | `symbols: [..]` | bid/ask/digits/filling_mode tức thời |
 | `hello` | `ts (epoch gateway)` | BE gửi ngay sau khi accept socket (cả trader lẫn streamer) và trả lại sau mỗi `heartbeat` của trader, nên skew cập nhật 5 s một lần. Agent tính `skew = ts - now()` và kiểm tra TTL trong giờ gateway, nên đồng hồ VPS lệch không làm lệnh bị từ chối |
 
-Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → `magic` (uint64). Không dùng `comment`: broker có thể ghi đè, và link lệnh ↔ turn nằm trong state gateway (ticket trên leg).
+Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → bỏ. Không dùng `magic` hay `comment` để gắn nhãn: lệnh là request/response, ticket về ngay trên `result` và gateway giữ link (ticket trên leg).
 
 ### 4.4 trader → BE
 
@@ -128,13 +128,13 @@ Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`
 4. `req` chuẩn:
    ```python
    {"action": TRADE_ACTION_DEAL, "symbol", "volume", "type": ORDER_TYPE_BUY|SELL,
-    "price": tick.ask|bid, "sl", "tp", "deviation": 20, "magic",
+    "price": tick.ask|bid, "sl", "tp", "deviation": 20,
     "type_time": ORDER_TIME_GTC, "type_filling": <từ symbol_info cache>}
    ```
    `order.close`: thêm `"position": ticket`, side ngược lại. `order.modify`: `action = TRADE_ACTION_SLTP`.
 5. `type_filling`: lấy bit đầu tiên khả dụng trong `symbol_info(s).filling_mode` theo thứ tự FOK → IOC → RETURN. Cache lúc khởi động, làm mới khi gặp `INVALID_FILL` (10030).
 6. Timeout: `asyncio.wait_for(..., 30)` → `result/unknown`. Thread không bị huỷ.
-7. Agent **không retry**. BE là chủ retry: gửi lại cùng `id` để lấy kết quả cũ, hoặc reconcile bằng `magic` trong `deal`/`state` từ `streamer`.
+7. Agent **không retry**. BE là chủ retry: gửi lại cùng `id` để lấy kết quả cũ, hoặc reconcile bằng `ticket`/`position_id` trong `deal`/`state` từ `streamer`.
 8. `results` giữ 10 000 entry gần nhất (LRU), đủ cho một ngày.
 
 ## 6. Streamer chi tiết

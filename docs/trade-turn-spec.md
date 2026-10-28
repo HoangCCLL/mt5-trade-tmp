@@ -51,8 +51,8 @@ Quy tắc:
 - Close một chân Binance **đang chase** = cancel chase (chưa có gì để thoát). Đã khớp một phần = cancel rồi mở out-leg cho phần đã khớp.
 - Mỗi chân MT5 chỉ mở khi chân Binance cùng cặp báo `filled`; nếu MT5 trả lỗi thì chân `failed`, turn `partial`, UI nổi cảnh báo, không tự retry.
 - Link lệnh ↔ turn: Binance `newClientOrderId = m{turn}-{8 hex}` (do agent sinh, bất biến, có trên mọi order/trade event; prefix `m{turn}-`
-  dùng để dọn lệnh mồ côi). MT5: **không gửi comment** (broker có thể ghi đè), `magic` = số turn; link chính là `ticket` mà gateway lưu trên leg
-  (`turn:{id}.legs.*.ticket`, Redis). UI tra ticket → turn/leg từ state turn, `magic` chỉ là fallback.
+  dùng để dọn lệnh mồ côi). MT5: **không gửi comment, không đặt magic** (lệnh lên broker như lệnh đánh tay, magic 0); lệnh là request/response nên
+  ticket hoặc lỗi về ngay trên `result`, gateway lưu `ticket` trên leg (`turn:{id}.legs.*.ticket`, Redis) và UI tra ticket → turn/leg từ state turn.
 - Thoát Binance bằng market chỉ qua Force Close, và Force luôn tear down toàn bộ turn.
 
 ## 4. `order.chase` (Binance agent)
@@ -112,7 +112,7 @@ Desk gồm các block độc lập (`<section data-block>` + `BLOCKS[name]()`; b
   Nút turn: Close, Force Close (xác nhận), checkbox Auto Exit WMO (disabled kèm lý do). Turn xong gom vào "Đã đóng".
 - **Log**: chỉ đọc, mỗi dòng là một event gateway đã phát (đổi trạng thái chân, result kèm latency ms hoặc thời gian chase, deal). Lọc theo turn.
 - **Tab Accounts**: một block mỗi account của set: broker/server/login/leverage từ `state.account`, liveness trader/streamer, skew, used weight;
-  balance/equity/uPnL/margin/free/margin level; positions (liq + leverage Binance, swap + ticket MT5, chip turn theo magic);
+  balance/equity/uPnL/margin/free/margin level; positions (liq + leverage Binance, swap + ticket MT5, chip turn theo ticket lưu trên leg);
   lệnh chờ Binance (clientOrderId `m{turn}-…` → chip turn) hoặc lịch WMO MT5 (`/scheduled`); 20 deal gần nhất (`/accounts/{id}/deals` + SSE).
   Bỏ ở MVP: KPI strip, bảng orders toàn cục, paper/simulate, modal accounts (quyết định 2026-10-28).
 

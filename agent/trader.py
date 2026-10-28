@@ -44,7 +44,7 @@ def build_request(type_, p):
         return {"action": mt5.TRADE_ACTION_DEAL, "symbol": p["symbol"], "volume": float(p["volume"]),
                 "type": mt5.ORDER_TYPE_BUY if buy else mt5.ORDER_TYPE_SELL,
                 "price": tick.ask if buy else tick.bid, "sl": float(p.get("sl") or 0), "tp": float(p.get("tp") or 0),
-                "deviation": int(p.get("deviation", 20)), "magic": int(p["magic"]),   # no comment field, ever: brokers rewrite it; magic is the tag
+                "deviation": int(p.get("deviation", 20)),   # no magic, no comment: the order reaches the broker exactly like a hand-placed one
                 "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling(info)}
     pos = mt5.positions_get(ticket=int(p["position"]))
     if not pos:
@@ -61,7 +61,7 @@ def build_request(type_, p):
                 "volume": float(p.get("volume") or pos.volume),
                 "type": mt5.ORDER_TYPE_BUY if closing_buy else mt5.ORDER_TYPE_SELL,
                 "price": tick.ask if closing_buy else tick.bid, "deviation": int(p.get("deviation", 20)),
-                "magic": pos.magic, "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling(info)}
+                "type_time": mt5.ORDER_TIME_GTC, "type_filling": _filling(info)}
     raise ValueError(type_)
 
 

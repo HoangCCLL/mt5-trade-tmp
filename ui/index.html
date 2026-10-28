@@ -79,7 +79,7 @@
       <input name="volume" type="number" step="0.01" min="0.01" value="0.01" required title="Khối lượng (lot). 0.01 = micro lot">
       <input name="sl" type="number" step="any" placeholder="sl" title="Stop loss (giá). Để trống = không đặt">
       <input name="tp" type="number" step="any" placeholder="tp" title="Take profit (giá). Để trống = không đặt">
-      <input name="magic" type="number" list="magics" value="1" required title="Magic number: nhãn số để nhận ra lệnh của hệ thống/chiến lược nào. Gợi ý từ các position đang mở">
+      <input name="magic" type="number" list="magics" placeholder="magic (Binance)" title="Chỉ Binance: prefix clientOrderId m{magic}-…. MT5 không dùng: lệnh lên broker như lệnh đánh tay (magic 0).">
       <datalist id="magics"></datalist>
       <button class="primary" title="Gửi lệnh market. Kết quả về trong Events kèm latency">Send</button>
     </form>

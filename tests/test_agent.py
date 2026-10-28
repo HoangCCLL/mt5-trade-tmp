@@ -55,7 +55,7 @@ async def test_trader_opens_position_and_returns_done(server, http, mt5, trader)
     body = r.json()
     assert body["status"] == "done" and body["retcode"] == mt5.TRADE_RETCODE_DONE and body["order"] > 0
     pos = mt5.positions_get()
-    assert len(pos) == 1 and pos[0].magic == 7 and pos[0].volume == 0.1
+    assert len(pos) == 1 and pos[0].magic == 0 and pos[0].volume == 0.1   # magic untouched: same as a hand-placed terminal order
 
 
 async def test_trader_sends_ack_before_result(server, http, mt5, trader):
@@ -279,7 +279,7 @@ async def test_scheduled_close_can_be_canceled(server, http, mt5, trader):
     assert len(mt5.positions_get()) == 1 and (await http.get("/accounts/A1/scheduled")).json() == []
 
 
-def test_mt5_order_request_carries_magic_but_never_a_comment(mt5):
+def test_mt5_order_request_carries_neither_magic_nor_comment(mt5):
     from agent.trader import build_request
-    req = build_request("order.open", {**ORDER, "comment": "t1-x"})   # even if a caller sends one: brokers overwrite comments, magic is the tag
-    assert req["magic"] == 7 and "comment" not in req
+    req = build_request("order.open", {**ORDER, "comment": "t1-x"})   # even if a caller sends them: the order goes up like a manual one
+    assert "magic" not in req and "comment" not in req

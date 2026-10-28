@@ -25,7 +25,7 @@ class OrderOpen(BaseModel):
     reduce_only: bool | None = None
     sl: float | None = None
     tp: float | None = None
-    magic: int = Field(ge=0)
+    magic: int = Field(default=0, ge=0)   # Binance only: prefix of newClientOrderId (m{magic}-…); the MT5 agent never sets magic
     deviation: int = 20
 
 
