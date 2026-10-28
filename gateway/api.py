@@ -26,7 +26,6 @@ class OrderOpen(BaseModel):
     sl: float | None = None
     tp: float | None = None
     magic: int = Field(ge=0)
-    comment: str | None = Field(default=None, max_length=31)
     deviation: int = 20
 
 

@@ -80,14 +80,14 @@ Mọi message là một JSON object:
 
 | type | payload | ghi chú |
 |---|---|---|
-| `order.open` | `symbol, side ("buy"/"sell"), volume, sl?, tp?, magic, comment?, deviation?` | market order |
+| `order.open` | `symbol, side ("buy"/"sell"), volume, sl?, tp?, magic, deviation?` | market order; không bao giờ gửi `comment` (broker ghi đè được), `magic` là nhãn duy nhất phía broker |
 | `order.close` | `position (ticket), volume?` | `volume` thiếu = đóng hết |
 | `order.modify` | `position (ticket), sl?, tp?` | sửa SL/TP position |
 | `history.fill` | `from? (epoch)` | backfill deals, `trader` gửi `history` theo batch 50 rồi `result{count}` |
 | `symbol.info` | `symbols: [..]` | bid/ask/digits/filling_mode tức thời |
 | `hello` | `ts (epoch gateway)` | BE gửi ngay sau khi accept socket (cả trader lẫn streamer) và trả lại sau mỗi `heartbeat` của trader, nên skew cập nhật 5 s một lần. Agent tính `skew = ts - now()` và kiểm tra TTL trong giờ gateway, nên đồng hồ VPS lệch không làm lệnh bị từ chối |
 
-Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → `magic` (uint64) và `comment` (≤ 31 ký tự, có thể bị broker ghi đè, chỉ để đọc tay).
+Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`, `current_close_order` → `order.close`, `current_modify_order` → `order.modify`, `current_fill_trade` → `history.fill`, `current_symbol` → `symbol.info`. `keyDual` → `magic` (uint64). Không dùng `comment`: broker có thể ghi đè, và link lệnh ↔ turn nằm trong state gateway (ticket trên leg).
 
 ### 4.4 trader → BE
 
@@ -128,7 +128,7 @@ Mapping từ task cũ: `current_buy_order`/`current_sell_order` → `order.open`
 4. `req` chuẩn:
    ```python
    {"action": TRADE_ACTION_DEAL, "symbol", "volume", "type": ORDER_TYPE_BUY|SELL,
-    "price": tick.ask|bid, "sl", "tp", "deviation": 20, "magic", "comment",
+    "price": tick.ask|bid, "sl", "tp", "deviation": 20, "magic",
     "type_time": ORDER_TIME_GTC, "type_filling": <từ symbol_info cache>}
    ```
    `order.close`: thêm `"position": ticket`, side ngược lại. `order.modify`: `action = TRADE_ACTION_SLTP`.

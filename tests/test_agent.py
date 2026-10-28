@@ -277,3 +277,9 @@ async def test_scheduled_close_can_be_canceled(server, http, mt5, trader):
     mt5.freeze_ticks = True; await asyncio.sleep(0.3); mt5.clock_offset += 48 * 3600; mt5.freeze_ticks = False
     await asyncio.sleep(0.5)
     assert len(mt5.positions_get()) == 1 and (await http.get("/accounts/A1/scheduled")).json() == []
+
+
+def test_mt5_order_request_carries_magic_but_never_a_comment(mt5):
+    from agent.trader import build_request
+    req = build_request("order.open", {**ORDER, "comment": "t1-x"})   # even if a caller sends one: brokers overwrite comments, magic is the tag
+    assert req["magic"] == 7 and "comment" not in req

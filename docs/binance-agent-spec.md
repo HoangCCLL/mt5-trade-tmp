@@ -18,13 +18,13 @@ không thread pool. Vẫn hai process `trader` và `streamer`, hai container t�
 
 | type | payload | Binance |
 |---|---|---|
-| `order.open` | `symbol, side (buy/sell), volume (qty), type? (market\|limit), price?, sl?, tp?, reduce_only?, magic?, comment?` | `POST /fapi/v1/order` MARKET hoặc LIMIT GTC; `sl`/`tp` → thêm `STOP_MARKET` / `TAKE_PROFIT_MARKET` với `closePosition=true` |
+| `order.open` | `symbol, side (buy/sell), volume (qty), type? (market\|limit), price?, sl?, tp?, reduce_only?, magic?` | `POST /fapi/v1/order` MARKET hoặc LIMIT GTC; `sl`/`tp` → thêm `STOP_MARKET` / `TAKE_PROFIT_MARKET` với `closePosition=true` |
 | `order.close` | `position (= symbol), volume?` | MARKET ngược chiều, `reduceOnly=true`, qty = \|positionAmt\| hoặc `volume` |
 | `order.modify` | `position (= symbol), sl?, tp?` | huỷ algo cũ cùng loại, đặt lại `STOP_MARKET` / `TAKE_PROFIT_MARKET closePosition` |
 | `order.cancel` | `symbol, order` | `DELETE /fapi/v1/order` |
 | `symbols.list` | | `exchangeInfo` symbols `TRADING`, cache 1 h |
 
-`magic` → `newClientOrderId = m{magic}-{8 hex}` để đọc lại từ user stream. `comment` không có trên Binance, trả lại nguyên trong result.
+`magic` → `newClientOrderId = m{magic}-{8 hex}` để đọc lại từ user stream. clientOrderId là namespace riêng của từng account Binance (chỉ cần duy nhất trong các lệnh mở của account đó), nên hai account long/short dùng cùng `m{turn}-` không đụng nhau; 8 hex ngẫu nhiên tránh trùng trong cùng account.
 `result`: `status done|error|unknown|rejected`, `retcode` = Binance `code` khi lỗi (0 khi ok), `order` = orderId,
 `price` = avgPrice (market) hoặc price (limit), `volume` = executedQty, cùng `t_recv, t_skew, t_sent, d_pool, d_mt5`.
 Mode vị thế: one-way (`positionSide=BOTH`). Hedge mode không hỗ trợ ở MVP.
