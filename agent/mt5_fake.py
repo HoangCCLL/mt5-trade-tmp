@@ -78,7 +78,7 @@ def symbols_get(group=None):
 
 def symbol_info(symbol):
     return SymbolInfo(name=symbol, digits=5, point=0.00001, filling_mode=SYMBOL_FILLING_FOK, trade_stops_level=0,
-                      volume_min=0.01, volume_step=0.01, volume_max=100, trade_contract_size=100000,
+                      volume_min=0.01, volume_step=0.01, volume_max=100, trade_contract_size=100 if symbol.startswith("XAU") else 100000,
                       currency_base=symbol[:3], currency_profit=symbol[3:6])
 
 

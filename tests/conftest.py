@@ -2,7 +2,8 @@ import asyncio, json, os, socket
 
 os.environ.update(
     GATEWAY_API_KEY="k",
-    AGENT_TOKENS=json.dumps({"A1": "tokA1", "A2": "tokA2"}),
+    AGENT_TOKENS=json.dumps({"A1": "tokA1", "A2": "tokA2", "A3": "tokA3"}),
+    TURN_SET=json.dumps({"long": "A1", "short": "A2", "mt5": "A3", "symbol_binance": "XAUUSDT", "symbol_mt5": "XAUUSD", "leverage": [1, 20]}),
     REDIS_URL="redis://localhost:6379/15",
     RESULT_TIMEOUT="1",
     UNSUB_GRACE="0.5",
@@ -26,7 +27,9 @@ async def server():
     from gateway.main import app
     from gateway.registry import registry
 
+    from gateway import turns
     registry.agents.clear()
+    turns.turns.clear(); turns.cmd_index.clear()
     await bus.r.flushdb()
     port = free_port()
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))

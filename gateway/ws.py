@@ -3,6 +3,7 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from . import bus, config
 from .registry import registry, Agent, envelope
+from . import turns
 
 router = APIRouter()
 
@@ -11,6 +12,7 @@ async def on_trader(a: Agent, msg: dict):
     t, p = msg["type"], msg["payload"]
     if t == "result":
         registry.resolve(a.account_id, p)
+        await turns.on_event(a.account_id, "result", p)
         if p.get("id") and p.get("status") != "unknown":
             await bus.sched_del(a.account_id, p["id"])   # a scheduled exit that finished (done/error/canceled)
         if p.get("timing", {}).get("cmd") in ("order.open", "order.close", "order.modify"):  # latency stats: single orders only
@@ -18,6 +20,7 @@ async def on_trader(a: Agent, msg: dict):
         await bus.publish(f"acct:{a.account_id}", "result", p)
     elif t == "update":   # progress of a long-running command (chase moves, scheduled exits)
         await bus.publish(f"acct:{a.account_id}", "update", p)
+        await turns.on_event(a.account_id, "update", p)
     elif t == "ack":
         registry.acked(a.account_id, p.get("id"))
         await bus.publish(f"acct:{a.account_id}", "ack", p)

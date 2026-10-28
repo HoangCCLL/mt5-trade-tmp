@@ -6,9 +6,9 @@ from .exchange import BinanceError
 
 now = time.time
 results: OrderedDict = OrderedDict()
-_symbols_cache = {"at": 0.0, "symbols": [], "info": {}}
 chases: dict[str, asyncio.Event] = {}   # running chase command id -> cancel flag
 EPS = 1e-9
+POLL = 0.25   # seconds between fill checks while a chase order rests
 
 
 def _remember(cid, res):
@@ -55,11 +55,13 @@ async def _position_amt(ex, symbol):
 
 
 async def _symbols(ex):
-    if now() - _symbols_cache["at"] > 3600:
+    """exchangeInfo cached for an hour, per exchange instance."""
+    cache = getattr(ex, "_symcache", None)
+    if cache is None or now() - cache["at"] > 3600:
         info = await ex.exchange_info()
-        _symbols_cache.update(at=now(), info={s["symbol"]: s for s in info["symbols"]},
-                              symbols=sorted(s["symbol"] for s in info["symbols"] if s.get("status") == "TRADING"))
-    return _symbols_cache
+        cache = ex._symcache = {"at": now(), "info": {s["symbol"]: s for s in info["symbols"]},
+                                "symbols": sorted(s["symbol"] for s in info["symbols"] if s.get("status") == "TRADING")}
+    return cache
 
 
 def _spec(sym):
@@ -119,19 +121,25 @@ async def chase(ex, cmd, emit) -> dict:
             emit("update", {"id": cid, "turn": p.get("turn"), "leg": p.get("leg"), "order": o["orderId"], "price": price,
                             "best_bid": best.get("bid"), "best_ask": best.get("ask"), "filled": filled, "remaining": remaining,
                             "moves": moves, "elapsed_ms": round((time.perf_counter() - t0) * 1000)})
-            deadline = time.perf_counter() + interval
+            deadline, last_poll, cur = time.perf_counter() + interval, time.perf_counter(), o
             while not cancel.is_set():
                 changed.clear()
                 left = deadline - time.perf_counter()
                 if left <= 0:
                     break
                 try:
-                    await asyncio.wait_for(changed.wait(), left)
+                    await asyncio.wait_for(changed.wait(), min(left, POLL))
                 except asyncio.TimeoutError:
-                    break
+                    pass
                 if best.get(my_side) != ref:
                     break
-            cur = await ex.get_order(symbol, o["orderId"])
+                if time.perf_counter() - last_poll >= POLL:   # fill detection: REST poll (ponytail: user stream later)
+                    last_poll = time.perf_counter()
+                    cur = await ex.get_order(symbol, o["orderId"])
+                    if cur["status"] in ("FILLED", "CANCELED", "EXPIRED"):
+                        break
+            if cur.get("status") not in ("FILLED", "CANCELED", "EXPIRED"):
+                cur = await ex.get_order(symbol, o["orderId"])
             if cur["status"] not in ("FILLED", "CANCELED", "EXPIRED"):
                 try:
                     cur = await ex.cancel_order(symbol, o["orderId"])
