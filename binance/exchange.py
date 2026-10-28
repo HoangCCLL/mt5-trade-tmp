@@ -52,6 +52,9 @@ class Binance:
     async def place_order(self, **params):
         return await self._call("POST", "/fapi/v1/order", params)
 
+    async def get_order(self, symbol, order_id):
+        return await self._call("GET", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
+
     async def cancel_order(self, symbol, order_id):
         return await self._call("DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id})
 

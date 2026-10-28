@@ -15,6 +15,21 @@ def _remember(cid, res):
         results.popitem(last=False)
 
 
+def _fill(o):
+    """Normalise a place/get order response: Binance omits avgPrice/executedQty in some ACK-style responses."""
+    return {"order": o["orderId"], "client": o.get("clientOrderId"), "order_status": o.get("status"),
+            "price": float(o.get("avgPrice") or 0) or float(o.get("price") or 0), "volume": float(o.get("executedQty") or 0)}
+
+
+async def _place(ex, **params):
+    """Place and, if the response does not carry the fill, read the order back once."""
+    o = await ex.place_order(**params)
+    if "executedQty" not in o or "avgPrice" not in o:
+        log.info("thin order response %s, reading back", o)
+        o = await ex.get_order(params["symbol"], o["orderId"])
+    return o
+
+
 def _client_id(p):
     return f"m{int(p.get('magic', 0))}-{uuid.uuid4().hex[:8]}"
 
@@ -56,9 +71,8 @@ async def execute(ex, cmd) -> dict:
                 params["type"] = "MARKET"
             if p.get("reduce_only"):
                 params["reduceOnly"] = "true"
-            o = await ex.place_order(**params)
-            res = {"status": "done", "retcode": 0, "order": o["orderId"], "client": o["clientOrderId"], "order_status": o["status"],
-                   "price": float(o["avgPrice"]) or float(o["price"]), "volume": float(o["executedQty"]), "comment": p.get("comment", "")}
+            o = await _place(ex, **params)
+            res = {"status": "done", "retcode": 0, **_fill(o), "comment": p.get("comment", "")}
             opp = "SELL" if side == "BUY" else "BUY"
             if p.get("sl"):
                 res["sl_order"] = (await _algo(ex, p["symbol"], opp, "STOP_MARKET", p["sl"]))["orderId"]
@@ -69,9 +83,9 @@ async def execute(ex, cmd) -> dict:
             if not amt:
                 return {"status": "error", "retcode": 0, "comment": "position_not_found"}
             qty = min(float(p.get("volume") or abs(amt)), abs(amt))
-            o = await ex.place_order(symbol=symbol, side="SELL" if amt > 0 else "BUY", type="MARKET", quantity=qty,
-                                     reduceOnly="true", newOrderRespType="RESULT", newClientOrderId=_client_id(p))
-            res = {"status": "done", "retcode": 0, "order": o["orderId"], "price": float(o["avgPrice"]), "volume": float(o["executedQty"])}
+            o = await _place(ex, symbol=symbol, side="SELL" if amt > 0 else "BUY", type="MARKET", quantity=qty,
+                             reduceOnly="true", newOrderRespType="RESULT", newClientOrderId=_client_id(p))
+            res = {"status": "done", "retcode": 0, **_fill(o)}
             if qty >= abs(amt):
                 await _cancel_algos(ex, symbol, {"STOP_MARKET", "TAKE_PROFIT_MARKET"})
         elif type_ == "order.modify":

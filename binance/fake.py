@@ -113,6 +113,10 @@ class Fake:
         self._emit_account()
         return dict(o)
 
+    async def get_order(self, symbol, order_id):
+        self.calls["get_order"] += 1
+        return dict(self.orders[int(order_id)])
+
     async def cancel_order(self, symbol, order_id):
         self.calls["cancel_order"] += 1
         self._fail()
