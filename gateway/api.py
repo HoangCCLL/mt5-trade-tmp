@@ -186,7 +186,15 @@ async def state(acct: str):
 @router.get("")
 async def accounts():
     return [{"id": a.account_id, "trader": a.trader is not None, "streamer": a.streamer is not None,
-             "alive": await bus.is_alive(a.account_id, "streamer")} for a in registry.agents.values()]
+             "alive": await bus.is_alive(a.account_id, "streamer"),
+             "hb": {role: await bus.alive_info(a.account_id, role) for role in ("trader", "streamer")}}
+            for a in registry.agents.values()]
+
+
+@router.get("/{acct}/deals")
+async def deals(acct: str, n: int = 50):
+    """Most recent fills first: live `deal` events plus `history` batches, as the streamer sent them."""
+    return await bus.deals_recent(acct, n)
 
 
 def sse(event, data):

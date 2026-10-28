@@ -68,7 +68,8 @@ Tất cả route yêu cầu header `X-Api-Key`. Lỗi trả `{"detail": ...}` ch
 | `POST` | `/accounts/{id}/history/fill` | `{from?}` | `202 {id}` |
 | `GET` | `/accounts/{id}/state` | | snapshot hoặc 404 |
 | `GET` | `/accounts/{id}/stream?symbols=a,b` | | SSE |
-| `GET` | `/accounts` | | `[{id, trader, streamer, alive}]` |
+| `GET` | `/accounts` | | `[{id, trader, streamer, alive, hb: {trader, streamer}}]` (`hb` = payload heartbeat cuối của mỗi role, hoặc null) |
+| `GET` | `/accounts/{id}/deals?n=50` | | deal mới nhất trước; gộp `deal` live và các batch `history`, giữ 500 trong Redis `deals:{id}` |
 
 Header tuỳ chọn `Idempotency-Key` trên các POST lệnh: gateway dùng nó làm command `id` thay vì sinh mới, để web app retry an toàn.
 

@@ -221,3 +221,8 @@ Refcount tick: `symbol → số SSE client đang xem`. 0 → 1: gửi `subscribe
 | Broker server (tick `time`, deal `time`, tham số `history_deals_get`) | dedupe, hiển thị | so với giờ VPS/UTC. Đo được +3 h trên Pepperstone-Demo dù tài liệu nói "UTC" |
 
 `mt5agent.exe timecheck [SYMBOL]` in các offset đo thực tế; chạy ngay sau một lệnh để deal mới nhất còn tươi.
+
+## `symbol.spec`
+
+`{symbol, base, quote, contract_size, volume_min, volume_step, volume_max, price_step, min_notional: 0, margin_per_lot}`.
+`margin_per_lot` = `mt5.order_calc_margin(ORDER_TYPE_BUY, symbol, 1.0, ask)` tại thời điểm hỏi, theo tiền tệ account và leverage/hedge rule của broker; UI nhân với lot để ước tính margin trước khi vào lệnh.

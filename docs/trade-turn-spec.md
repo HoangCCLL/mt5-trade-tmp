@@ -61,7 +61,7 @@ Quy tắc:
 
 Vòng lặp, chạy trong agent, không chờ BE:
 1. Đặt LIMIT, `priceMatch=QUEUE`, `timeInForce=GTX` (post-only), qty = phần còn lại.
-2. Chờ tới khi **best price cùng phía đổi** (bookTicker WS) hoặc hết `interval_ms`, tuỳ cái nào trước.
+2. Chờ tới khi **best price cùng phía đổi** (bookTicker WS) hoặc hết `interval_ms`, tuỳ cái nào trước. MVP: `interval_ms` là hằng `CHASE_INTERVAL_MS = 500` trong `gateway/turns.py`, không phải tham số form.
 3. Chưa khớp hết: huỷ, đặt lại ở QUEUE mới (MVP cancel+create; nâng cấp sau: `PUT /fapi/v1/order` amend).
    GTX bị sàn từ chối vì sẽ khớp ngay (`-5022`/EXPIRED): coi như một lần dời, đặt lại ngay.
    Huỷ trả `-2011` (lệnh đã khớp trong lúc huỷ): đọc lại lệnh, cộng phần khớp.
@@ -88,21 +88,31 @@ schedule (ticket A, B). Uncheck → `schedule.cancel` cả hai. Trạng thái hi
 ## 6. Gateway
 
 - `gateway/turns.py`: state machine + Redis (`turn:{id}` JSON, `turns` set, `cmd:{command_id} → (turn, leg)`), cache RAM, rebuild lúc start.
-- Routes: `POST /turns` (start: `oz, leverage, interval_ms`), `GET /turns`, `GET /turns/{id}`, `POST /turns/{id}/legs/{leg}/close`,
+- Routes: `POST /turns` (start: `units, leverage`), `GET /turns`, `GET /turns/{id}`, `POST /turns/{id}/legs/{leg}/close`,
   `POST /turns/{id}/close`, `POST /turns/{id}/force-close`, `POST /turns/{id}/wmo {on: bool}`, `GET /turns/stream` (SSE),
   `GET /convert?oz=` (xem trước quy đổi), `GET /accounts/{acct}/symbols/{symbol}` (spec).
 - Hook: `ws.on_trader` chuyển `result`/`update` cho `turns.on_agent_event(acct, type, payload)`; turn đổi trạng thái → publish `turns` channel.
 - Lỗi và timeout của từng lệnh ghi vào chân tương ứng, không ném lên HTTP (HTTP chỉ trả về đã nhận ý định hay chưa).
 
-## 7. UI (turn panel)
+## 7. UI
 
-- Form Start: leverage (slider trong khoảng cấu hình), oz, interval; hiện ngay `qty Binance` và `lots MT5` sau quy đổi, kèm cảnh báo dưới mức tối thiểu.
-- Mỗi turn một card, hai hàng cặp: `bn_long BUY ⟶ mt5 SELL` và `bn_short SELL ⟶ mt5 BUY`. Mỗi chân là một chip trạng thái:
-  xám pending, xanh dương nhấp nháy **chasing** (giá đang đặt, best bid/ask, số lần dời, thời gian), xanh lá filled/open (giá, qty, ticket),
-  cam canceled, đỏ failed, tím **force/market**. Ký hiệu rõ: Binance maker (chase) và Force market là hai hành động khác nhau, nút màu khác.
-- Nút chân: Close (chase out / close ticket), Cancel (chỉ khi đang chase). Nút turn: Close all, Force Close (hỏi xác nhận), checkbox WMO (disabled kèm lý do khi chưa đủ điều kiện).
-- Cột PnL: Binance `unRealizedProfit` của qty turn, MT5 `profit` theo ticket, tổng turn. Timeline mini cho mỗi chase (giá đặt theo thời gian).
-- View sàn (ngoài turn): giữ các card Account/Positions/Orders/Deals hiện có cho từng account trong set, đủ để đối chiếu với web Binance và terminal MT5.
+Hai trang cùng origin: `ui/desk.html` cho trader (mặc định), `ui/index.html` là trang kỹ thuật (lệnh lẻ, latency, tick).
+
+Desk gồm các block độc lập (`<section data-block>` + `BLOCKS[name]()`; bố cục trong một `grid-template-areas`, đổi thứ tự ở đó):
+- **Giá**: bid/ask Binance (nguồn: streamer account long, rơi về short khi im > 10 s) và MT5, tuổi tick; Δ Pair A = MT5 bid − BN bid,
+  Δ Pair B = BN ask − MT5 ask (giá vào lệnh thực tế của từng cặp); funding rate + giờ funding tiếp theo (markPrice stream).
+- **Start turn**: khối lượng (đơn vị vật lý), leverage Binance (slider trong `TURN_SET.leverage`). Preflight từ `/convert` + tick + state:
+  qty/lot, notional, margin ước tính (Binance notional/leverage; MT5 lot × `margin_per_lot` của terminal) so với `margin_free` từng account.
+  Nút Start khoá khi quy đổi không hợp lệ, thiếu trader hoặc đủ 20 turn.
+- **Trade turns**: mỗi turn hai hàng A/B, bốn cột theo thời gian: Binance vào → MT5 hedge → Binance ra → MT5 đóng. Màu ô theo trạng thái:
+  xám pending, xanh dương nhấp nháy chasing/sending/closing, xanh lá filled/open, xám đậm closed (ghi cách thoát maker/market/wmo), cam canceled,
+  đỏ failed, tím market, xanh ngọc WMO. Nút chỉ hiện ở ô có việc: Cancel (đang chase), Close (maker) (chân Binance đã khớp), Close (MT5 đang mở).
+  Nút turn: Close, Force Close (xác nhận), checkbox Auto Exit WMO (disabled kèm lý do). Turn xong gom vào "Đã đóng".
+- **Log**: chỉ đọc, mỗi dòng là một event gateway đã phát (đổi trạng thái chân, result kèm latency ms hoặc thời gian chase, deal). Lọc theo turn.
+- **Tab Accounts**: một block mỗi account của set: broker/server/login/leverage từ `state.account`, liveness trader/streamer, skew, used weight;
+  balance/equity/uPnL/margin/free/margin level; positions (liq + leverage Binance, swap + ticket MT5, chip turn theo magic);
+  lệnh chờ Binance (clientOrderId `m{turn}-…` → chip turn) hoặc lịch WMO MT5 (`/scheduled`); 20 deal gần nhất (`/accounts/{id}/deals` + SSE).
+  Bỏ ở MVP: KPI strip, bảng orders toàn cục, paper/simulate, modal accounts (quyết định 2026-10-28).
 
 ## 8. Thứ tự triển khai
 

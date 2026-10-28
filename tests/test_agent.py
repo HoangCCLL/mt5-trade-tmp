@@ -124,6 +124,7 @@ async def test_streamer_publishes_initial_state(server, http, mt5, streamer):
     r = await http.get("/accounts/A1/state")
     assert r.status_code == 200
     assert r.json()["connected"] is True and r.json()["account"]["balance"] == 10000.0
+    assert r.json()["account"]["leverage"] == 100 and r.json()["account"]["company"]   # UI labels come from the terminal, not config
 
 
 async def test_streamer_is_quiet_when_nothing_changes(server, http, mt5, streamer):
@@ -243,6 +244,7 @@ def test_skew_estimate_removes_one_way_delay():
 
 async def test_mt5_symbol_spec_is_normalised(server, http, mt5, trader):
     r = (await http.get("/accounts/A1/symbols/EURUSD")).json()
+    assert r.pop("margin_per_lot") == pytest.approx(100000 * 1.1 / 100, rel=0.01)   # mt5.order_calc_margin at current ask, 1:100
     assert r == {"symbol": "EURUSD", "base": "EUR", "quote": "USD", "contract_size": 100000, "volume_min": 0.01,
                  "volume_step": 0.01, "volume_max": 100, "price_step": 0.00001, "min_notional": 0}
 

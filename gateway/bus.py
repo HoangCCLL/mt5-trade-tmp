@@ -22,6 +22,21 @@ async def is_alive(acct, role) -> bool:
     return bool(await r.exists(f"acct:{acct}:alive:{role}"))
 
 
+async def alive_info(acct, role):
+    raw = await r.get(f"acct:{acct}:alive:{role}")
+    return json.loads(raw) if raw else None
+
+
+async def deals_push(acct, deals: list[dict], keep=500):
+    if deals:
+        await r.lpush(f"deals:{acct}", *[json.dumps(d) for d in deals])
+        await r.ltrim(f"deals:{acct}", 0, keep - 1)
+
+
+async def deals_recent(acct, n=50):
+    return [json.loads(x) for x in await r.lrange(f"deals:{acct}", 0, n - 1)]
+
+
 async def publish(channel, event, data):
     await r.publish(channel, json.dumps({"event": event, "data": data}))
 

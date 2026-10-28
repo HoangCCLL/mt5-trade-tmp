@@ -62,7 +62,6 @@
     <form id="turn-form" class="row" style="align-items:center">
       <label title="Khối lượng theo đơn vị vật lý của tài sản (oz với vàng). Được quy đổi sang qty Binance và lot MT5 qua spec của từng sàn.">units <input name="units" type="number" step="any" min="0" value="1" style="width:90px"></label>
       <label title="Leverage đặt cho cả hai account Binance trước khi vào lệnh. MT5 không quản lý leverage.">leverage <input name="leverage" type="range" min="1" max="20" value="5"> <output id="lev-out">5x</output></label>
-      <label title="Chase: dời lệnh về giá queue mới khi best price đổi, hoặc chậm nhất mỗi N ms">interval <input name="interval_ms" type="number" min="50" step="50" value="500" style="width:80px"> ms</label>
       <span id="convert-out" style="color:var(--muted)"></span>
       <button class="primary" id="turn-start" disabled title="Mở hai chase limit (long trên account long, short trên account short); MT5 hedge mở tự động khi từng chân Binance khớp">Start turn</button>
     </form>
@@ -279,7 +278,7 @@ async function previewConvert() {
 }
 tf.addEventListener('submit', async e => {
   e.preventDefault();
-  try { const t = await api('POST', '/turns', {units: +tf.units.value, leverage: +tf.leverage.value, interval_ms: +tf.interval_ms.value}); turns[t.id] = t; renderTurns(); log(`turn #${t.id} started`); }
+  try { const t = await api('POST', '/turns', {units: +tf.units.value, leverage: +tf.leverage.value}); turns[t.id] = t; renderTurns(); log(`turn #${t.id} started`); }
   catch (err) { log(`turn start failed ${err.status}`, err.body); }
 });
 async function openTurnStream() {

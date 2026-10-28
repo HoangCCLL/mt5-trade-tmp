@@ -39,6 +39,7 @@ async def on_streamer(a: Agent, msg: dict):
     elif t == "tick":
         await bus.publish(f"ticks:{a.account_id}:{p['symbol']}", "tick", p)
     elif t in ("deal", "history"):
+        await bus.deals_push(a.account_id, [p] if t == "deal" else p.get("deals", []))
         await bus.publish(f"acct:{a.account_id}", t, p)
     elif t == "heartbeat":
         await bus.alive(a.account_id, "streamer", p)

@@ -73,10 +73,12 @@ async def test_convert_preview_uses_both_specs(server, http, turn_agents):
 
 async def test_turn_opens_mt5_hedges_as_binance_chases_fill(server, http, turn_agents):
     exl, exs, mt5 = turn_agents
-    r = await http.post("/turns", json={"units": 5, "leverage": 10, "interval_ms": 5000})
+    r = await http.post("/turns", json={"units": 5, "leverage": 10})
     assert r.status_code == 201, r.text
     t = r.json(); tid = t["id"]
     assert t["volume"] == {"binance": 5, "mt5": 0.05} and t["status"] == "opening"
+    from gateway import turns
+    assert t["interval_ms"] == turns.CHASE_INTERVAL_MS   # fixed in code for the MVP, not a form field
     assert exl.leverage["XAUUSDT"] == 10 and exs.leverage["XAUUSDT"] == 10
     t = await wait_turn(http, tid, lambda t: t["legs"]["long_in"]["status"] == "chasing" and t["legs"]["short_in"]["status"] == "chasing")
     assert t["legs"]["long_in"]["price"] == 4000.0 and t["legs"]["short_in"]["price"] == 4000.5   # queue on each side
@@ -92,7 +94,7 @@ async def test_turn_opens_mt5_hedges_as_binance_chases_fill(server, http, turn_a
 
 
 async def open_turn(http, exl, exs):
-    tid = (await http.post("/turns", json={"units": 5, "leverage": 10, "interval_ms": 5000})).json()["id"]
+    tid = (await http.post("/turns", json={"units": 5, "leverage": 10})).json()["id"]
     await wait_turn(http, tid, lambda t: t["legs"]["short_in"]["status"] == "chasing")
     exl.hit_resting(); exs.hit_resting()
     return await wait_turn(http, tid, lambda t: t["status"] == "open")
@@ -113,7 +115,7 @@ async def test_close_turn_chases_out_and_closes_mt5(server, http, turn_agents):
 
 async def test_force_close_cancels_chases_and_markets_out(server, http, turn_agents):
     exl, exs, mt5 = turn_agents
-    tid = (await http.post("/turns", json={"units": 5, "leverage": 10, "interval_ms": 5000})).json()["id"]
+    tid = (await http.post("/turns", json={"units": 5, "leverage": 10})).json()["id"]
     await wait_turn(http, tid, lambda t: t["legs"]["short_in"]["status"] == "chasing")
     exl.hit_resting()                                                   # only the long side got in
     await wait_turn(http, tid, lambda t: t["legs"]["mt5_short"]["status"] == "open")
@@ -167,7 +169,7 @@ async def test_closing_a_chasing_out_leg_cancels_it_and_can_be_restarted(server,
 
 async def test_chase_resumes_with_remaining_qty_after_agent_restart(server, http, turn_agents):
     exl, exs, mt5 = turn_agents
-    tid = (await http.post("/turns", json={"units": 5, "leverage": 10, "interval_ms": 5000})).json()["id"]
+    tid = (await http.post("/turns", json={"units": 5, "leverage": 10})).json()["id"]
     await wait_turn(http, tid, lambda t: t["legs"]["long_in"]["status"] == "chasing")
     exl.hit_resting(qty=2)                                   # partial fill before the crash
     await asyncio.sleep(0.4)

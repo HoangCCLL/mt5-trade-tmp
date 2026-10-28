@@ -72,8 +72,9 @@ class Binance:
             async for raw in ws:
                 yield json.loads(raw)
 
-    async def book_ticker(self, symbols):
-        streams = "/".join(f"{s.lower()}@bookTicker" for s in symbols)
+    async def book_ticker(self, symbols, mark=False):
+        """Best bid/ask events; with mark=True the same socket also carries markPriceUpdate (mark, funding)."""
+        streams = "/".join(f"{s.lower()}@bookTicker" + (f"/{s.lower()}@markPrice@1s" if mark else "") for s in symbols)
         async with connect(f"{self.ws}/stream?streams={streams}", ping_interval=20, ping_timeout=20) as ws:
             async for raw in ws:
                 yield json.loads(raw)["data"]

@@ -49,10 +49,12 @@ async def test_state_shows_position_and_deal_is_published(server, http, ex, agen
     await http.post("/accounts/A1/orders", json=ORDER)
     deal = dict(await task)["deal"]
     assert deal["symbol"] == "BTCUSDT" and deal["volume"] == 0.01 and deal["magic"] == 7 and deal["entry"] == 0
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.6)   # > reconcile_period: liquidation price only comes from positionRisk, not the user stream
     s = (await http.get("/accounts/A1/state")).json()
     p = s["positions"][0]
     assert p["ticket"] == "BTCUSDT" and p["type"] == 0 and p["volume"] == 0.01 and s["account"]["currency"] == "USDT"
+    assert p["liquidation"] == pytest.approx(p["price_open"] * 0.95)   # positionRisk liquidationPrice (fake: 20x)
+    assert s["account"]["used_weight"] >= 1                            # X-MBX-USED-WEIGHT-1M of the last REST call
 
 
 async def test_close_position_by_symbol(server, http, ex, agents):
@@ -119,6 +121,17 @@ async def test_state_follows_the_funded_margin_asset(server, http, ex, agents):
 async def test_leverage_route_sets_symbol_leverage(server, http, ex, agents):
     r = (await http.post("/accounts/A1/leverage", json={"symbol": "BTCUSDT", "leverage": 7})).json()
     assert r["status"] == "done" and ex.leverage["BTCUSDT"] == 7
+
+
+async def test_state_carries_funding_for_subscribed_symbols(server, http, ex, agents):
+    assert "BTCUSDT" not in (await http.get("/accounts/A1/state")).json().get("funding", {})
+    async with http.stream("GET", "/accounts/A1/stream?symbols=BTCUSDT") as resp:
+        async with asyncio.timeout(3):
+            async for line in resp.aiter_lines():
+                if line.startswith("data:") and '"funding"' in line and '"rate"' in line:
+                    break
+    f = (await http.get("/accounts/A1/state")).json()["funding"]["BTCUSDT"]
+    assert f["rate"] == 0.0001 and f["next"] > time.time() * 1000 and f["mark"] == pytest.approx(60000.5)   # markPrice stream
 
 
 async def test_symbol_spec_is_normalised(server, http, ex, agents):

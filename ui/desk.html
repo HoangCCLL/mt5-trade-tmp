@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hedge Desk</title>
+<style>
+  /* ---- theme (same tokens as index.html) ---- */
+  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --ok:#16a34a; --bad:#dc2626; --warn:#d97706; --accent:#2563eb; --purple:#7c3aed; --teal:#0d9488 }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1216; --fg:#e6e8eb; --muted:#9aa3ad; --card:#171b21; --line:#2a313a } }
+  :root[data-theme="dark"] { --bg:#0f1216; --fg:#e6e8eb; --muted:#9aa3ad; --card:#171b21; --line:#2a313a }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui,sans-serif; padding:12px 16px }
+  input, select, button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg) }
+  button { cursor:pointer } button:disabled { opacity:.5; cursor:default } button.primary { background:var(--accent); color:#fff; border-color:var(--accent) } button.danger { color:var(--bad); border-color:var(--bad) }
+  table { width:100%; border-collapse:collapse } th, td { text-align:left; padding:3px 6px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:top } th { color:var(--muted); font-weight:500 }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums }
+  .muted { color:var(--muted) } .pos { color:var(--ok) } .neg { color:var(--bad) } .mono { font-family:ui-monospace,monospace }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--bad); margin-right:4px; vertical-align:middle } .dot.on { background:var(--ok) }
+  .pill { display:inline-block; padding:0 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted) }
+
+  /* ---- page frame: tabs + blocks. Layout lives in the two grid-template-areas below; reorder there. ---- */
+  header.top { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px }
+  header.top h1 { font-size:16px; margin:0 } .tabs button { border-radius:999px } .tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent) }
+  .spacer { flex:1 } #agents .pill { margin-left:4px }
+  main.tab { display:grid; gap:12px; align-items:start }
+  main.tab[hidden] { display:none }
+  #tab-desk { grid-template-columns:1fr; grid-template-areas:"prices" "entry" "turns" "log" }
+  @media (min-width:1100px) { #tab-desk { grid-template-columns:400px 1fr; grid-template-areas:"prices prices" "entry turns" "log turns" } }
+  #tab-accounts { grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)) }
+  .block { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:0 }
+  .block > h2 { font-size:12px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; display:flex; gap:8px; align-items:center }
+  .block > h2 .spacer { flex:1 }
+  [data-block=prices] { grid-area:prices } [data-block=entry] { grid-area:entry } [data-block=turns] { grid-area:turns } [data-block=log] { grid-area:log }
+
+  /* prices */
+  .quotes { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px }
+  .q { border:1px solid var(--line); border-radius:8px; padding:6px 10px } .q b { display:block; font-size:11px; color:var(--muted); font-weight:500 }
+  .q .v { font-size:18px; font-variant-numeric:tabular-nums } .q small { color:var(--muted) } .q.stale { opacity:.45 }
+
+  /* entry */
+  form.entry { display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:center } form.entry input[type=number] { width:110px }
+  .pre { margin-top:8px } .pre td.bad { color:var(--bad) } #entry-msg { margin-top:6px; min-height:1.2em }
+
+  /* turns */
+  .turn { border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:8px }
+  .turn header { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px } .turn h3 { margin:0; font-size:14px }
+  .pill.opening, .pill.closing { color:var(--accent); border-color:var(--accent) } .pill.open, .pill.mt5_only { color:var(--ok); border-color:var(--ok) }
+  .pill.force_closed, .pill.force_closing { color:var(--purple); border-color:var(--purple) } .pill.partial { color:var(--bad); border-color:var(--bad) } .pill.canceled { color:var(--warn); border-color:var(--warn) }
+  table.pipe th:first-child, table.pipe td:first-child { width:28px; color:var(--muted) } table.pipe td { white-space:normal }
+  .cell { border-left:3px solid var(--line); padding-left:6px; min-height:34px } .cell b { font-weight:600 } .cell small { display:block; color:var(--muted) }
+  .cell.pending { opacity:.55 } .cell.chasing, .cell.sending, .cell.closing, .cell.force_closing { border-color:var(--accent); animation:pulse 1.2s ease-in-out infinite }
+  .cell.filled, .cell.open { border-color:var(--ok) } .cell.closed { border-color:var(--muted); color:var(--muted) } .cell.canceled { border-color:var(--warn) } .cell.failed { border-color:var(--bad); color:var(--bad) }
+  .cell.exit-market { border-color:var(--purple) } .cell.exit-wmo { border-color:var(--teal) } .cell.armed { border-color:var(--teal) }
+  .cell button { font-size:11px; padding:1px 6px; margin-top:3px }
+  @keyframes pulse { 0%,100% { box-shadow:-3px 0 0 0 rgba(37,99,235,.35) } 50% { box-shadow:-3px 0 0 3px rgba(37,99,235,0) } }
+  details.done summary { cursor:pointer; color:var(--muted) } details.done .turn { opacity:.8 }
+
+  /* log */
+  #log { font:12px/1.5 ui-monospace,monospace; max-height:320px; overflow:auto; margin:0; white-space:pre-wrap } #log .t { color:var(--muted) } #log .err { color:var(--bad) }
+
+  /* accounts */
+  .acct h2 .role { color:var(--fg); text-transform:none; letter-spacing:0; font-size:13px }
+  .nums { display:grid; grid-template-columns:repeat(3, 1fr); gap:4px 10px; margin-bottom:8px } .nums b { display:block; font-size:11px; color:var(--muted); font-weight:500 } .nums span { font-variant-numeric:tabular-nums }
+  .acct h4 { margin:10px 0 4px; font-size:12px; color:var(--muted); font-weight:500 } .acct .scroll { overflow-x:auto }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Hedge Desk</h1>
+  <nav class="tabs"><button data-tab="desk" class="active">Desk</button><button data-tab="accounts">Accounts</button></nav>
+  <span id="agents" title="Mỗi account trong set: ● trader và streamer đều có heartbeat trong 15 s. ○ mất agent: mọi lệnh tới account đó bị từ chối."></span>
+  <span class="spacer"></span>
+  <input id="key" placeholder="API key" type="password" size="22" title="GATEWAY_API_KEY của BE. Lưu trong trình duyệt này, không gửi đi đâu khác.">
+  <span id="clock" class="mono muted" title="Giờ máy này. Deal MT5 hiển thị theo giờ server broker, không so với giờ này."></span>
+</header>
+
+<main id="tab-desk" class="tab">
+  <section class="block" data-block="prices">
+    <h2>Giá <span class="spacer"></span><span id="price-note" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="quotes" id="quotes"></div>
+  </section>
+
+  <section class="block" data-block="entry">
+    <h2>Start turn</h2>
+    <form class="entry" id="entry">
+      <label for="units" title="Khối lượng mỗi chân theo đơn vị vật lý (oz với XAU). Bốn chân cùng khối lượng; MT5 làm tròn xuống theo bước lot.">Khối lượng</label>
+      <span><input id="units" name="units" type="number" min="0" step="any" value="1" required> <span id="base" class="muted"></span></span>
+      <label for="lev" title="Đặt cho cả hai account Binance trước khi vào lệnh. Chỉ đổi margin bị khoá, không đổi khối lượng. MT5 dùng leverage sẵn của account.">Binance leverage</label>
+      <span><input id="lev" name="leverage" type="range" min="1" max="20" value="10" style="width:160px;vertical-align:middle"> <b id="lev-v">10x</b></span>
+      <span></span>
+      <span><button class="primary" type="submit" id="start" title="Mở hai chase limit maker: BUY trên account long, SELL trên account short. MT5 hedge market tự mở khi chân Binance tương ứng khớp. Tối đa 20 turn mở.">Start turn</button>
+        <span id="open-count" class="muted"></span></span>
+    </form>
+    <table class="pre" id="preflight"></table>
+    <div id="entry-msg" class="muted"></div>
+  </section>
+
+  <section class="block" data-block="turns">
+    <h2>Trade turns <span class="spacer"></span><span class="muted" style="text-transform:none;letter-spacing:0">chase mỗi <span id="interval"></span> ms</span></h2>
+    <div id="turns"></div>
+    <details class="done" id="done"><summary>Đã đóng (<span id="done-n">0</span>)</summary><div id="turns-done"></div></details>
+  </section>
+
+  <section class="block" data-block="log">
+    <h2>Log <span class="spacer"></span><select id="log-filter" title="Lọc theo turn"><option value="">tất cả</option></select></h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<main id="tab-accounts" class="tab" hidden></main>
+
+<script>
+const $ = s => document.querySelector(s);
+const H = () => ({'X-Api-Key': $('#key').value, 'Content-Type': 'application/json'});
+const fmt = (n, d) => n == null || n === '' || Number.isNaN(+n) ? '·' : (+n).toLocaleString(undefined, {maximumFractionDigits: d ?? 5});
+const money = n => n == null ? '·' : (+n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const pn = n => n == null ? '' : (+n > 0 ? 'pos' : +n < 0 ? 'neg' : '');
+const hhmmss = ms => ms ? new Date(ms).toLocaleTimeString() : '·';
+const ROLE = {long: 'Binance long', short: 'Binance short', mt5: 'MT5'};
+const DONE = ['closed', 'force_closed', 'canceled'];
+
+// ---- store: everything the blocks render from. Streams write here and mark blocks dirty. ----
+const S = {cfg: null, accounts: {}, state: {}, ticks: {}, deals: {}, sched: [], turns: {}, conv: null};
+const dirty = new Set(); let raf = 0;
+const BLOCKS = {};                                        // name -> render(); add a block = add an entry + a <section data-block>
+function mark(...names) { names.forEach(n => dirty.add(n)); if (!raf) raf = requestAnimationFrame(flush); }
+function flush() { raf = 0; for (const n of dirty) BLOCKS[n]?.(); dirty.clear(); }
+
+try { $('#key').value = localStorage.getItem('apiKey') || ''; } catch {}
+$('#key').addEventListener('change', () => { try { localStorage.setItem('apiKey', $('#key').value); } catch {} boot(); });
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  $('#tab-desk').hidden = b.dataset.tab !== 'desk'; $('#tab-accounts').hidden = b.dataset.tab !== 'accounts';
+}));
+setInterval(() => { $('#clock').textContent = new Date().toLocaleTimeString() + ` (UTC${-new Date().getTimezoneOffset() / 60 >= 0 ? '+' : ''}${-new Date().getTimezoneOffset() / 60})`; }, 1000);
+
+async function api(method, path, body) {
+  const r = await fetch(path, {method, headers: H(), body: body && JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.detail?.detail || j.detail || r.statusText), {status: r.status, body: j});
+  return j;
+}
+async function sse(url, onEvent, signal) {               // fetch-based SSE with reconnect; same as index.html
+  for (;;) {
+    try {
+      const r = await fetch(url, {headers: H(), signal});
+      if (!r.ok) throw new Error(`stream ${r.status}`);
+      const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '', ev = '';
+      for (;;) {
+        const {value, done} = await reader.read(); if (done) break;
+        buf += dec.decode(value, {stream: true}); let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i); buf = buf.slice(i + 1);
+          if (line.startsWith('event:')) ev = line.slice(6).trim();
+          else if (line.startsWith('data:')) onEvent(ev, JSON.parse(line.slice(5)));
+        }
+      }
+    } catch (e) { if (signal.aborted) return; }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
+// ---- boot: config, then one stream per account + the turn stream ----
+let ctl = null;
+async function boot() {
+  if (!$('#key').value) return;
+  if (ctl) ctl.abort(); ctl = new AbortController();
+  try { S.cfg = await api('GET', '/turns/config'); } catch (e) { logLine('', `config: ${e.message}`, true); return; }
+  if (!S.cfg.long) { logLine('', 'TURN_SET chưa cấu hình trên BE', true); return; }
+  const [lo, hi] = S.cfg.leverage || [1, 125]; $('#lev').min = lo; $('#lev').max = hi; $('#lev').value = Math.min(Math.max(+$('#lev').value, lo), hi); $('#lev-v').textContent = $('#lev').value + 'x';
+  $('#interval').textContent = '500';
+  for (const role of ['long', 'short', 'mt5']) {
+    const id = S.cfg[role], sym = role === 'mt5' ? S.cfg.symbol_mt5 : S.cfg.symbol_binance;
+    api('GET', `/accounts/${id}/deals?n=50`).then(d => { S.deals[id] = d; mark('accounts'); }).catch(() => {});
+    sse(`/accounts/${id}/stream?symbols=${encodeURIComponent(sym)}`, (ev, d) => onAccountEvent(id, ev, d), ctl.signal);
+  }
+  sse('/turns/stream', (ev, t) => { if (ev === 'turn') onTurn(t); }, ctl.signal);
+  pollAccounts(); preview();
+}
+async function pollAccounts() {
+  try { const rows = await api('GET', '/accounts'); S.accounts = Object.fromEntries(rows.map(r => [r.id, r])); } catch {}
+  try { S.sched = await api('GET', `/accounts/${S.cfg.mt5}/scheduled`); } catch {}
+  mark('agents', 'accounts', 'entry');
+}
+setInterval(() => { if (S.cfg && document.visibilityState === 'visible') pollAccounts(); }, 15000);
+
+function onAccountEvent(id, ev, d) {
+  if (ev === 'state') { S.state[id] = d; mark('accounts', 'entry', 'prices'); }
+  else if (ev === 'tick') { (S.ticks[id] ||= {})[d.symbol] = {...d, at: Date.now()}; mark('prices', 'entry'); }
+  else if (ev === 'deal') { (S.deals[id] ||= []).unshift(d); S.deals[id].length = Math.min(S.deals[id].length, 50); mark('accounts');
+    logLine(turnTag(d.magic), `${id} deal ${d.side ? d.side.toUpperCase() : (d.type === 0 ? 'BUY' : 'SELL')} ${fmt(d.volume)} @ ${fmt(d.price)}${d.profit ? ` pnl ${money(d.profit)}` : ''}${d.commission ? ` fee ${money(d.commission)}` : ''}`); }
+  else if (ev === 'result') { const ref = cmdRef(d.id), tm = d.timing || {}, cmd = tm.cmd || '';
+    if (cmd.startsWith('symbol')) return;                                     // lookups, not trading
+    const lat = cmd === 'order.chase' ? ` · chase ${((d.elapsed_ms || 0) / 1000).toFixed(1)} s · ${d.moves ?? 0} dời` : tm.total != null ? ` · ${Math.round(tm.total)} ms (sàn ${Math.round(tm.mt5 ?? 0)})` : '';
+    logLine(ref ? `#${ref.tid} ${ref.leg}` : '', `${id} ${cmd || 'cmd'} ${d.status}${d.comment ? ` (${d.comment})` : ''}${lat}`, d.status === 'error'); }
+  else if (ev === 'history') { (S.deals[id] ||= []).push(...(d.deals || [])); mark('accounts'); }
+}
+function cmdRef(cid) { for (const t of Object.values(S.turns)) for (const [leg, l] of Object.entries(t.legs)) if (l.cmd === cid) return {tid: t.id, leg}; return null; }
+function turnTag(magic) { return magic && S.turns[magic] ? `#${magic}` : ''; }
+
+const prevLegs = {};
+function onTurn(t) {
+  const was = prevLegs[t.id];
+  for (const [leg, l] of Object.entries(t.legs)) {
+    if (was && was[leg] !== l.status) logLine(`#${t.id} ${leg}`, `${was[leg]} → ${l.status}${l.filled ? ` · khớp ${fmt(l.filled)} @ ${fmt(l.price)}` : ''}${l.ticket ? ` · #${l.ticket}` : ''}${l.error ? ` · ${l.error}` : ''}`, l.status === 'failed');
+  }
+  if (!was) logLine(`#${t.id}`, `turn ${t.status} · ${t.units} ${t.base} · ${t.leverage}x`);
+  else if (was._status !== t.status) logLine(`#${t.id}`, `turn ${was._status} → ${t.status}`);
+  prevLegs[t.id] = Object.fromEntries(Object.entries(t.legs).map(([k, v]) => [k, v.status])); prevLegs[t.id]._status = t.status;
+  S.turns[t.id] = t; mark('turns', 'entry', 'log-filter');
+}
+
+// ---- block: agents (header chips) ----
+BLOCKS.agents = () => {
+  $('#agents').innerHTML = ['long', 'short', 'mt5'].map(role => { const id = S.cfg[role], a = S.accounts[id], ok = a && a.trader && a.streamer && a.alive && a.hb?.trader;
+    return `<span class="pill" title="${ROLE[role]} = ${id}. trader ${a?.trader ? 'nối' : 'mất'}, streamer ${a?.alive ? 'sống' : 'mất'}${a?.hb?.trader?.clock_skew != null ? `, lệch giờ ${a.hb.trader.clock_skew}s` : ''}"><i class="dot ${ok ? 'on' : ''}"></i>${id}</span>`; }).join('');
+};
+
+// ---- block: prices ----
+function quote(role) { const id = S.cfg[role], t = S.ticks[id]?.[role === 'mt5' ? S.cfg.symbol_mt5 : S.cfg.symbol_binance]; return t && Date.now() - t.at < 10000 ? t : null; }
+function bn() { return quote('long') || quote('short'); }           // both Binance accounts see the same book: one source, the other as fallback
+BLOCKS.prices = () => {
+  const b = bn(), m = quote('mt5'), src = quote('long') ? S.cfg.long : quote('short') ? S.cfg.short : null;
+  const age = t => t ? `${((Date.now() - t.at) / 1000).toFixed(1)} s` : 'chưa có tick';
+  const f = S.state[S.cfg.long]?.funding?.[S.cfg.symbol_binance] || S.state[S.cfg.short]?.funding?.[S.cfg.symbol_binance];
+  const sa = b && m ? m.bid - b.bid : null, sb = b && m ? b.ask - m.ask : null;
+  $('#quotes').innerHTML = `
+    <div class="q ${b ? '' : 'stale'}" title="bookTicker của Binance qua streamer ${src || '?'} . Chase BUY nằm ở bid, chase SELL nằm ở ask."><b>Binance ${S.cfg.symbol_binance} · ${src || '·'}</b><span class="v">${fmt(b?.bid)} / ${fmt(b?.ask)}</span><small> bid / ask · ${age(b)}</small></div>
+    <div class="q ${m ? '' : 'stale'}" title="Tick MT5 (giá broker). Hedge mở bằng market: SELL khớp ở bid, BUY khớp ở ask."><b>MT5 ${S.cfg.symbol_mt5}</b><span class="v">${fmt(m?.bid)} / ${fmt(m?.ask)}</span><small> bid / ask · ${age(m)}</small></div>
+    <div class="q" title="Pair A vào lệnh: BUY Binance maker tại bid, SELL MT5 market tại bid. Δ = MT5 bid − Binance bid. Dương: MT5 đắt hơn, có lợi cho pair A."><b>Δ Pair A (MT5 bid − BN bid)</b><span class="v ${pn(sa)}">${fmt(sa, 2)}</span><small> USD / ${S.cfg.symbol_binance.replace(/USD[TC]$/, '') === 'XAU' ? 'oz' : 'đơn vị'}</small></div>
+    <div class="q" title="Pair B vào lệnh: SELL Binance maker tại ask, BUY MT5 market tại ask. Δ = Binance ask − MT5 ask. Dương: Binance đắt hơn, có lợi cho pair B."><b>Δ Pair B (BN ask − MT5 ask)</b><span class="v ${pn(sb)}">${fmt(sb, 2)}</span><small> chưa trừ phí, funding</small></div>
+    <div class="q ${f ? '' : 'stale'}" title="Funding rate hiện tại và giờ thanh toán tiếp theo (markPrice stream). Long trả khi dương, short trả khi âm."><b>Funding</b><span class="v ${pn(f?.rate)}">${f ? (f.rate * 100).toFixed(4) + '%' : '·'}</span><small> tiếp theo ${f?.next ? hhmmss(f.next) : '·'} · mark ${fmt(f?.mark, 2)}</small></div>`;
+};
+
+// ---- block: entry (form + preflight) ----
+let convTimer = null;
+function preview() { clearTimeout(convTimer); convTimer = setTimeout(async () => {
+  const u = +$('#units').value; if (!(u > 0) || !S.cfg) { S.conv = null; mark('entry'); return; }
+  try { S.conv = await api('GET', `/convert?units=${u}`); } catch (e) { S.conv = {ok: false, reason: e.message}; }
+  mark('entry');
+}, 250); }
+$('#units').addEventListener('input', preview);
+$('#lev').addEventListener('input', () => { $('#lev-v').textContent = $('#lev').value + 'x'; mark('entry'); });
+BLOCKS.entry = () => {
+  const c = S.conv, lev = +$('#lev').value, b = bn(), m = quote('mt5');
+  const open = Object.values(S.turns).filter(t => !DONE.includes(t.status)).length;
+  $('#open-count').textContent = `${open}/20 turn đang mở`; $('#base').textContent = c?.base || '';
+  const agentsOk = ['long', 'short', 'mt5'].every(r => S.accounts[S.cfg?.[r]]?.trader);
+  $('#start').disabled = !(c && c.ok && agentsOk && open < 20);
+  if (!c) { $('#preflight').innerHTML = ''; $('#entry-msg').textContent = ''; return; }
+  if (!c.ok) { $('#preflight').innerHTML = ''; $('#entry-msg').textContent = c.reason; return; }
+  const row = (role, qty, unit, px, notional, margin) => { const st = S.state[S.cfg[role]]?.account, free = st?.margin_free, bad = margin != null && free != null && margin > free;
+    return `<tr><td>${ROLE[role]}</td><td class="num">${fmt(qty)} ${unit}</td><td class="num">${money(notional)}</td><td class="num ${bad ? 'bad' : ''}" title="${role === 'mt5' ? 'lot × margin 1 lot do terminal tính (order_calc_margin), cho 1 chân' : 'notional / leverage, ước tính theo giá hiện tại'}">${money(margin)}</td><td class="num ${bad ? 'bad' : ''}">${money(free)} ${st?.currency || ''}</td></tr>`; };
+  const bq = c.binance, mq = c.mt5, cs = c.specs.mt5.contract_size, mpl = c.specs.mt5.margin_per_lot;
+  $('#preflight').innerHTML = `<tr><th></th><th class="num">khối lượng</th><th class="num">notional</th><th class="num">margin ≈</th><th class="num">margin free</th></tr>
+    ${row('long', bq, c.base, b?.ask, b ? bq * b.ask : null, b ? bq * b.ask / lev : null)}
+    ${row('short', bq, c.base, b?.bid, b ? bq * b.bid : null, b ? bq * b.bid / lev : null)}
+    ${row('mt5', mq, 'lot', m?.ask, m ? mq * cs * m.ask : null, mpl != null ? mq * mpl : null)}`;
+  $('#entry-msg').textContent = `${c.units} ${c.base} = ${bq} ${c.base} Binance mỗi account = ${mq} lot MT5 mỗi chân (contract ${cs}). ` + (agentsOk ? '' : 'Thiếu trader của ít nhất một account.');
+};
+$('#entry').addEventListener('submit', async e => {
+  e.preventDefault(); $('#start').disabled = true;
+  try { const t = await api('POST', '/turns', {units: +$('#units').value, leverage: +$('#lev').value}); logLine(`#${t.id}`, 'start OK'); }
+  catch (err) { logLine('', `start thất bại ${err.status}: ${err.message}`, true); }
+  mark('entry');
+});
+
+// ---- block: turns ----
+const CELLS = [['long_in', 'mt5_short', 'long_out'], ['short_in', 'mt5_long', 'short_out']];   // pair A, pair B: Binance in, MT5 hedge, Binance out
+const cardHtml = {};
+BLOCKS.turns = () => {
+  const list = Object.values(S.turns).sort((a, b) => b.id - a.id);
+  const live = list.filter(t => !DONE.includes(t.status)), done = list.filter(t => DONE.includes(t.status));
+  $('#done-n').textContent = done.length;
+  renderList($('#turns'), live, 'Chưa có turn nào đang mở'); renderList($('#turns-done'), done, '');
+};
+function renderList(box, list, empty) {
+  if (!list.length) { box.innerHTML = empty ? `<span class="muted">${empty}</span>` : ''; return; }
+  if (box.children.length !== list.length || [...box.children].some((el, i) => el.dataset.id != list[i].id)) { box.innerHTML = ''; for (const t of list) { const d = document.createElement('div'); d.dataset.id = t.id; box.appendChild(d); } }
+  list.forEach((t, i) => { const html = turnCard(t); if (cardHtml[t.id] !== html || box.children[i].outerHTML.length < 50) { cardHtml[t.id] = html; box.children[i].outerHTML = html; } });
+}
+function cell(t, leg, col) {
+  const l = t.legs[leg], forced = t.status.startsWith('force');
+  let cls = l.status, main = '', sub = '', btn = '';
+  const side = leg.startsWith('long') ? (col === 0 ? 'BUY' : 'SELL') : leg.startsWith('short') ? (col === 0 ? 'SELL' : 'BUY') : (leg === 'mt5_short' ? 'SELL' : 'BUY');
+  if (col === 1 || col === 3) {                                  // MT5 leg: entry cell (1) and exit cell (3)
+    const exit = col === 3;
+    if (exit) {
+      if (l.status === 'open') { cls = t.wmo === 'armed' && t.wmo_ids?.[leg] ? 'armed' : 'pending'; main = t.wmo === 'armed' && t.wmo_ids?.[leg] ? 'chờ WMO' : t.wmo === 'firing' ? 'WMO đang đóng…' : 'còn mở'; sub = t.wmo === 'armed' ? 'agent đóng ở tick đầu sau cuối tuần' : '';
+        if (!forced) btn = `<button data-leg="${leg}" title="Đóng position MT5 này bằng market ngay">Close</button>`; }
+      else if (l.status === 'closing' || l.status === 'force_closing') { main = 'đang đóng…'; }
+      else if (l.status === 'closed') { cls += ` exit-${l.exit || 'market'}`; main = `đã đóng (${l.exit || 'market'})`; }
+      else { cls = 'pending'; main = '·'; }
+    } else {
+      if (l.status === 'pending') { main = `${side} chờ Binance khớp`; }
+      else if (l.status === 'sending') { main = `${side} market…`; sub = `${fmt(l.qty)} lot`; }
+      else if (l.status === 'failed') { main = `${side} lỗi`; sub = l.error || ''; }
+      else { cls = l.status === 'closed' ? 'closed' : 'open'; main = `${side} ${fmt(l.qty)} lot @ ${fmt(l.price)}`; sub = `#${l.ticket || '·'}`; }
+    }
+  } else {                                                       // Binance chase legs
+    const inLeg = col === 0;
+    if (l.status === 'pending') { main = inLeg ? `${side} chờ` : '·'; cls = 'pending'; }
+    else if (l.status === 'chasing') { main = `${side} chase @ ${fmt(l.price)}`; sub = `bid ${fmt(l.best_bid)} / ask ${fmt(l.best_ask)} · ${l.moves} dời · khớp ${fmt(l.filled)}/${fmt(l.qty)} · ${Math.round((Date.now() / 1000 - l.updated))} s`;
+      if (!forced) btn = `<button data-leg="${leg}" title="${inLeg ? 'Dừng chase, chưa vào lệnh. Phần đã khớp dở vẫn là vị thế thật.' : 'Dừng chase thoát, giữ vị thế.'}">Cancel</button>`; }
+    else if (l.status === 'filled') { main = `${side} ${fmt(l.filled)} @ ${fmt(l.price)}`; sub = `${l.moves} dời`; }
+    else if (l.status === 'closed') { cls += ` exit-${l.exit || 'maker'}`; main = `${side} ${fmt(l.filled)} @ ${fmt(l.price)}`; sub = `đã thoát (${l.exit || 'maker'})`; }
+    else if (l.status === 'force_closing') { main = 'thoát market…'; }
+    else if (l.status === 'canceled') { main = l.filled ? `huỷ · khớp dở ${fmt(l.filled)}` : 'huỷ chase'; }
+    else if (l.status === 'failed') { main = 'lỗi'; sub = l.error || ''; }
+    if (!inLeg && l.status === 'pending' && t.legs[leg.replace('_out', '_in')].status === 'filled' && !forced)
+      btn = `<button data-leg="${leg.replace('_out', '_in')}" title="Thoát bằng chase limit reduceOnly (phí maker), không chắc khớp ngay. Muốn chắc khớp dùng Force Close.">Close (maker)</button>`;
+  }
+  return `<div class="cell ${cls}"><b>${main}</b>${sub ? `<small>${sub}</small>` : ''}${btn}</div>`;
+}
+function turnCard(t) {
+  const L = t.legs, done = DONE.includes(t.status);
+  const wmoOk = ['long', 'short'].every(s => L[s + '_in'].status !== 'filled') && ['long', 'short'].some(s => L[s + '_out'].status === 'filled') && ['mt5_short', 'mt5_long'].some(l => L[l].status === 'open');
+  const wmoWhy = wmoOk ? 'Agent MT5 đóng hai chân MT5 ngay tick đầu tiên sau kỳ nghỉ cuối tuần, không cần UI mở. Bỏ tick là huỷ.' : 'Chỉ bật được khi hai chân Binance đã thoát và chân MT5 còn mở.';
+  const rows = CELLS.map((legs, i) => `<tr><td>${'AB'[i]}</td><td>${cell(t, legs[0], 0)}</td><td>${cell(t, legs[1], 1)}</td><td>${cell(t, legs[2], 2)}</td><td>${cell(t, legs[1], 3)}</td></tr>`).join('');
+  return `<div class="turn" data-id="${t.id}">
+    <header><h3>#${t.id}</h3><span class="pill ${t.status}">${t.status}</span>
+      <span class="muted">${t.units} ${t.base} · ${t.volume.binance} ${t.base} BN · ${t.volume.mt5} lot MT5 · ${t.leverage}x · ${new Date(t.created * 1000).toLocaleTimeString()}</span>
+      <span class="spacer"></span>
+      ${done ? '' : `<label title="${wmoWhy}"><input type="checkbox" data-wmo ${t.wmo !== 'off' ? 'checked' : ''} ${wmoOk || t.wmo !== 'off' ? '' : 'disabled'}> Auto Exit WMO${t.wmo !== 'off' ? ` (${t.wmo})` : ''}</label>
+      <button data-close title="Thoát mọi chân: Binance bằng chase maker, MT5 bằng market">Close</button>
+      <button class="danger" data-force title="Huỷ mọi chase, thoát Binance bằng market (phí taker), đóng MT5 bằng market. Cả turn, không hoàn tác.">Force Close</button>`}
+    </header>
+    <table class="pipe"><tr><th></th><th>Binance vào</th><th>MT5 hedge</th><th>Binance ra</th><th>MT5 đóng</th></tr>${rows}</table>
+  </div>`;
+}
+document.querySelector('[data-block=turns]').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.closest('.turn').dataset.id;
+  try {
+    if (b.dataset.leg) await api('POST', `/turns/${id}/legs/${b.dataset.leg}/close`);
+    else if (b.hasAttribute('data-close')) await api('POST', `/turns/${id}/close`);
+    else if (b.hasAttribute('data-force')) { if (!confirm(`Force close turn #${id}? Thoát market toàn bộ, không hoàn tác.`)) return; await api('POST', `/turns/${id}/force-close`); }
+  } catch (err) { logLine(`#${id}`, `thao tác thất bại ${err.status}: ${err.message}`, true); }
+});
+document.querySelector('[data-block=turns]').addEventListener('change', async e => {
+  const c = e.target; if (!c.hasAttribute('data-wmo')) return;
+  const id = c.closest('.turn').dataset.id;
+  try { await api('POST', `/turns/${id}/wmo`, {on: c.checked}); pollAccounts(); } catch (err) { c.checked = !c.checked; logLine(`#${id}`, `WMO thất bại ${err.status}: ${err.message}`, true); }
+});
+setInterval(() => { if (Object.values(S.turns).some(t => Object.values(t.legs).some(l => l.status === 'chasing'))) { Object.keys(cardHtml).forEach(k => delete cardHtml[k]); mark('turns'); } }, 1000);   // chase age ticks
+
+// ---- block: log (read-only; every line is an event the gateway already emitted) ----
+const LOG = [];
+function logLine(tag, text, err) { LOG.unshift({t: new Date().toLocaleTimeString(), tag, text, err}); LOG.length = Math.min(LOG.length, 400); mark('log'); }
+BLOCKS.log = () => { const f = $('#log-filter').value;
+  $('#log').innerHTML = LOG.filter(l => !f || l.tag.startsWith(f + ' ') || l.tag === f).map(l => `<span class="t">${l.t}</span> ${l.tag ? `<b>${l.tag}</b> ` : ''}<span class="${l.err ? 'err' : ''}">${l.text}</span>`).join('\n'); };
+BLOCKS['log-filter'] = () => { const sel = $('#log-filter'), cur = sel.value, ids = Object.keys(S.turns).sort((a, b) => b - a);
+  sel.innerHTML = '<option value="">tất cả</option>' + ids.map(i => `<option value="#${i}">#${i}</option>`).join(''); sel.value = cur; };
+$('#log-filter').addEventListener('change', () => mark('log'));
+
+// ---- tab: accounts (one block per account of the set) ----
+BLOCKS.accounts = () => {
+  if (!S.cfg) return;
+  $('#tab-accounts').innerHTML = ['long', 'short', 'mt5'].map(role => acctBlock(role, S.cfg[role])).join('');
+};
+function acctBlock(role, id) {
+  const a = S.accounts[id], st = S.state[id], ac = st?.account || {}, mt = role === 'mt5';
+  const tag = magic => magic && S.turns[magic] ? ` <span class="pill">#${magic}</span>` : '';
+  const turnOf = client => { const m = /^m(\d+)-/.exec(client || ''); return m ? tag(+m[1]) : ''; };
+  const pos = (st?.positions || []).map(p => `<tr><td>${p.symbol}</td><td>${p.type === 0 ? 'BUY' : 'SELL'}</td><td class="num">${fmt(p.volume)}</td><td class="num">${fmt(p.price_open)}</td><td class="num">${fmt(p.price_current)}</td><td class="num ${pn(p.profit)}">${money(p.profit)}</td>
+    <td class="num">${p.sl ? fmt(p.sl) : '·'} / ${p.tp ? fmt(p.tp) : '·'}</td>${mt ? `<td class="num">${money(p.swap)}</td><td>${tag(p.magic)}${p.ticket ? ` <span class="muted">#${p.ticket}</span>` : ''}</td>` : `<td class="num">${p.liquidation ? fmt(p.liquidation, 2) : '·'}</td><td class="num">${p.leverage || '·'}x</td>`}</tr>`).join('');
+  const ords = mt
+    ? S.sched.map(s => { const t = Object.values(S.turns).find(t => Object.values(t.wmo_ids || {}).includes(s.id));
+        return `<tr><td>WMO</td><td>close #${s.position}</td><td colspan="3" class="muted">đóng ở tick đầu sau cuối tuần${t ? tag(t.id) : ''}</td></tr>`; }).join('')
+    : (st?.orders || []).map(o => `<tr><td>${o.symbol}</td><td>${o.side.toUpperCase()} ${o.type}</td><td class="num">${fmt(o.price)}</td><td class="num">${fmt(o.filled)}/${fmt(o.qty)}</td><td>${turnOf(o.client)} <span class="muted">${o.client || ''}</span></td></tr>`).join('');
+  const deals = (S.deals[id] || []).slice(0, 20).map(d => mt
+    ? `<tr><td class="muted" title="giờ server broker">${d.time ? new Date(d.time * 1000).toISOString().slice(11, 19) : '·'}</td><td>${d.symbol || ''}</td><td>${d.type === 0 ? 'BUY' : d.type === 1 ? 'SELL' : d.type} ${d.entry === 1 ? 'out' : 'in'}</td><td class="num">${fmt(d.volume)}</td><td class="num">${fmt(d.price)}</td><td class="num ${pn(d.profit)}">${money(d.profit)}</td><td class="num">${money((d.commission || 0) + (d.swap || 0))}</td><td>${tag(d.magic)}</td></tr>`
+    : `<tr><td class="muted">${hhmmss(d.time_msc)}</td><td>${d.symbol}</td><td>${(d.side || '').toUpperCase()} ${d.entry === 1 ? 'out' : 'in'}</td><td class="num">${fmt(d.volume)}</td><td class="num">${fmt(d.price)}</td><td class="num ${pn(d.profit)}">${money(d.profit)}</td><td class="num">${money(d.commission)}</td><td>${tag(d.magic)}</td></tr>`).join('');
+  const ok = a && a.trader && a.alive;
+  return `<section class="block acct" data-block="acct-${role}">
+    <h2><span class="role">${ROLE[role]}</span> <span class="pill">${id}</span><span class="spacer"></span>
+      <span title="trader: worker đặt lệnh. streamer: worker đẩy state/tick."><i class="dot ${a?.trader && a?.hb?.trader ? 'on' : ''}"></i>trader <i class="dot ${a?.alive ? 'on' : ''}"></i>streamer</span></h2>
+    <div class="muted" style="margin-bottom:6px">${ac.company || ac.server || '·'}${ac.server && ac.company ? ` · ${ac.server}` : ''}${mt && ac.login ? ` · ${ac.login}` : ''}${mt && ac.leverage ? ` · 1:${ac.leverage}` : ''}${!mt && ac.used_weight != null ? ` · weight ${ac.used_weight}/2400` : ''}${a?.hb?.trader?.clock_skew != null ? ` · lệch giờ ${a.hb.trader.clock_skew} s` : ''}${st?.connected === false ? ' · <span class="neg">terminal/exchange mất kết nối</span>' : ''}</div>
+    <div class="nums">
+      <div title="Số dư ví (đã trừ phí, chưa tính uPnL)"><b>Balance</b><span>${money(ac.balance)} ${ac.currency || ''}</span></div>
+      <div title="Balance + uPnL"><b>Equity</b><span>${money(ac.equity)}</span></div>
+      <div title="Lãi/lỗ chưa chốt của các position đang mở"><b>uPnL</b><span class="${pn(ac.profit)}">${money(ac.profit)}</span></div>
+      <div title="Margin đang bị khoá cho position mở"><b>Margin</b><span>${money(ac.margin)}</span></div>
+      <div title="Còn lại để mở thêm"><b>Free</b><span>${money(ac.margin_free)}</span></div>
+      ${mt ? `<div title="Equity / Margin. Broker stop-out khi xuống thấp (thường 50%)."><b>Margin level</b><span>${ac.margin_level ? fmt(ac.margin_level, 0) + '%' : '·'}</span></div>` : '<div></div>'}
+    </div>
+    <h4>Positions (${(st?.positions || []).length})</h4><div class="scroll"><table><tr><th>symbol</th><th>side</th><th class="num">qty</th><th class="num">entry</th><th class="num">now</th><th class="num">uPnL</th><th class="num">SL / TP</th>${mt ? '<th class="num">swap</th><th>turn</th>' : '<th class="num">liq</th><th class="num">lev</th>'}</tr>${pos || '<tr><td colspan="9" class="muted">không có</td></tr>'}</table></div>
+    <h4>${mt ? 'Lịch WMO' : 'Lệnh chờ'} (${mt ? S.sched.length : (st?.orders || []).length})</h4><div class="scroll"><table>${ords || '<tr><td class="muted">không có</td></tr>'}</table></div>
+    <h4>Deals gần nhất</h4><div class="scroll"><table><tr><th>${mt ? 'giờ broker' : 'giờ'}</th><th>symbol</th><th>side</th><th class="num">qty</th><th class="num">giá</th><th class="num">pnl</th><th class="num">${mt ? 'phí+swap' : 'phí'}</th><th>turn</th></tr>${deals || '<tr><td colspan="8" class="muted">chưa có</td></tr>'}</table></div>
+  </section>`;
+}
+
+boot();
+</script>
+</body>
+</html>

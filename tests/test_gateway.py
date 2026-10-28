@@ -118,6 +118,18 @@ async def test_accounts_list_shows_connection_and_alive(server, http):
         r = await http.get("/accounts")
     row = next(x for x in r.json() if x["id"] == "A1")
     assert row["streamer"] is True and row["alive"] is True
+    assert row["hb"]["streamer"]["connected"] is True and row["hb"]["trader"] is None   # last heartbeat payload per role
+
+
+async def test_deals_endpoint_keeps_recent_deals_and_history_batches(server, http):
+    async with FakeAgent(server, "A1", "streamer") as s:
+        await s.send("deal", {"ticket": 1, "symbol": "XAUUSD", "volume": 0.1, "price": 2000.0, "profit": 0.0})
+        await s.send("history", {"batch": 1, "total": 2, "deals": [{"ticket": 2, "symbol": "XAUUSD"}, {"ticket": 3, "symbol": "XAUUSD"}]})
+        await asyncio.sleep(0.1)
+        r = await http.get("/accounts/A1/deals?n=2")
+    assert r.status_code == 200
+    assert [d["ticket"] for d in r.json()] == [3, 2]   # newest first, capped by n
+    assert (await http.get("/accounts/A1/deals")).json()[-1]["ticket"] == 1
 
 
 async def test_healthz_needs_no_api_key(server):

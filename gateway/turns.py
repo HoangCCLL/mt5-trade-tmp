@@ -10,6 +10,7 @@ from .api import api_key
 from .registry import registry, TraderOffline, ResultTimeout
 
 MAX_OPEN = 20
+CHASE_INTERVAL_MS = 500   # ponytail: one constant for every chase; make it a turn field when traders need to tune it
 LEGS = ("long_in", "short_in", "mt5_short", "mt5_long", "long_out", "short_out")
 SIDES = {"long": ("buy", "sell"), "short": ("sell", "buy")}   # binance in-side, out-side
 HEDGE = {"long": "mt5_short", "short": "mt5_long"}           # binance side -> mt5 leg (opposite direction)
@@ -139,7 +140,7 @@ async def convert(units: float):
 
 # ---- actions
 
-async def start(units, leverage, interval_ms):
+async def start(units, leverage):
     if not S():
         raise HTTPException(503, "TURN_SET not configured")
     lo, hi = S().get("leverage", [1, 125])
@@ -160,12 +161,12 @@ async def start(units, leverage, interval_ms):
     tid = int(await bus.r.incr("turn:seq"))
     t = {"id": tid, "created": time.time(), "status": "opening", "forced": False, "wmo": "off", "wmo_ids": {},
          "symbol": {"binance": S()["symbol_binance"], "mt5": S()["symbol_mt5"]}, "volume": {"binance": conv["binance"], "mt5": conv["mt5"]},
-         "units": units, "base": conv["base"], "leverage": leverage, "interval_ms": interval_ms, "legs": {l: _leg() for l in LEGS}}
+         "units": units, "base": conv["base"], "leverage": leverage, "interval_ms": CHASE_INTERVAL_MS, "legs": {l: _leg() for l in LEGS}}
     turns[tid] = t
     for side in ("long", "short"):
         t["legs"][f"{side}_in"]["qty"] = conv["binance"]
         await _send(S()[side], "order.chase", {"symbol": S()["symbol_binance"], "side": SIDES[side][0], "volume": conv["binance"],
-                                               "interval_ms": interval_ms, "magic": tid, "turn": tid, "leg": f"{side}_in"},
+                                               "interval_ms": CHASE_INTERVAL_MS, "magic": tid, "turn": tid, "leg": f"{side}_in"},
                     t, f"{side}_in", "in", "chasing")
     await _save(t)
     return t
@@ -345,7 +346,6 @@ async def on_event(acct, type_, p):
 class StartTurn(BaseModel):
     units: float = Field(gt=0)
     leverage: int = Field(ge=1, le=125)
-    interval_ms: int = Field(default=500, ge=50, le=60000)
 
 
 class Wmo(BaseModel):
@@ -367,7 +367,7 @@ async def turn_config():
 
 @router.post("/turns", status_code=201)
 async def start_route(body: StartTurn):
-    return await start(body.units, body.leverage, body.interval_ms)
+    return await start(body.units, body.leverage)
 
 
 @router.get("/turns")

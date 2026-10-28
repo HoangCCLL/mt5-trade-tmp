@@ -12,6 +12,7 @@ class Fake:
     testnet = True
     key = "fakekey0000"
     asset = "USDT"   # margin asset the fake account is funded in
+    used_weight = 1  # what the real client reads from X-MBX-USED-WEIGHT-1M
 
     def __init__(self):
         self.prices = {"BTCUSDT": (60000.0, 60001.0), "ETHUSDT": (3000.0, 3000.5)}  # bid, ask
@@ -69,7 +70,8 @@ class Fake:
     async def positions(self):
         return [{"symbol": s, "positionSide": "BOTH", "positionAmt": str(p["amt"]), "entryPrice": str(p["entry"]),
                  "markPrice": str(self._mark(s)), "unRealizedProfit": str(self._upnl(s, p)),
-                 "initialMargin": str(abs(p["amt"]) * p["entry"] / 20), "leverage": "20", "updateTime": _ms()}
+                 "initialMargin": str(abs(p["amt"]) * p["entry"] / 20), "leverage": "20", "updateTime": _ms(),
+                 "liquidationPrice": str(p["entry"] * (0.95 if p["amt"] > 0 else 1.05))}
                 for s, p in self.pos.items() if p["amt"]]
 
     async def open_orders(self, symbol=None):
@@ -174,12 +176,14 @@ class Fake:
         while True:
             yield await self.events.get()
 
-    async def book_ticker(self, symbols):
+    async def book_ticker(self, symbols, mark=False):
         self.calls["book_ticker"] += 1
         while True:
             for s in symbols:
                 b, a = self.prices[s]
-                yield {"s": s, "b": str(b), "a": str(a), "E": _ms()}
+                yield {"e": "bookTicker", "s": s, "b": str(b), "a": str(a), "E": _ms()}
+                if mark:
+                    yield {"e": "markPriceUpdate", "s": s, "p": str((a + b) / 2), "r": "0.0001", "T": _ms() + 8 * 3600 * 1000, "E": _ms()}
             await asyncio.sleep(0.05)
 
     async def aclose(self):

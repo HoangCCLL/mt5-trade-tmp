@@ -87,10 +87,13 @@ def _execute(cmd) -> dict:
         info = _symbol(p["symbol"])
         if info is None:
             return {"status": "error", "retcode": 0, "comment": "unknown symbol"}
+        tick = mt5.symbol_info_tick(info.name)
+        margin = mt5.order_calc_margin(mt5.ORDER_TYPE_BUY, info.name, 1.0, tick.ask) if tick else None
         return {"status": "done", "spec": {"symbol": info.name, "base": info.currency_base, "quote": info.currency_profit,
                                            "contract_size": info.trade_contract_size, "volume_min": info.volume_min,
                                            "volume_step": info.volume_step, "volume_max": info.volume_max,
-                                           "price_step": info.point, "min_notional": 0}}
+                                           "price_step": info.point, "min_notional": 0,
+                                           "margin_per_lot": margin}}   # account currency, at current ask, broker's own calc
     if type_ == "symbol.info":
         return {"status": "done", "symbols": {s: mt5.symbol_info_tick(s)._asdict() for s in p["symbols"]}}
     req = build_request(type_, p)

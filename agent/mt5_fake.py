@@ -12,7 +12,7 @@ TRADE_RETCODE_DONE, TRADE_RETCODE_MARKET_CLOSED, TRADE_RETCODE_INVALID_FILL = 10
 DEAL_ENTRY_IN, DEAL_ENTRY_OUT = 0, 1
 
 TerminalInfo = namedtuple("TerminalInfo", "connected trade_allowed")
-AccountInfo = namedtuple("AccountInfo", "login balance equity margin margin_free profit currency")
+AccountInfo = namedtuple("AccountInfo", "login balance equity margin margin_free margin_level profit currency leverage company server")
 SymbolInfo = namedtuple("SymbolInfo", "name digits point filling_mode trade_stops_level volume_min volume_step volume_max trade_contract_size currency_base currency_profit")
 Tick = namedtuple("Tick", "time bid ask last volume time_msc")
 Position = namedtuple("Position", "ticket time type magic symbol volume price_open sl tp price_current profit swap comment")
@@ -67,8 +67,12 @@ def terminal_info():
 
 def account_info():
     profit = sum(p.profit for p in _positions.values())
-    return AccountInfo(login=1, balance=10000.0, equity=10000.0 + profit, margin=0.0, margin_free=10000.0,
-                       profit=profit, currency="USD")
+    return AccountInfo(login=1, balance=10000.0, equity=10000.0 + profit, margin=0.0, margin_free=10000.0, margin_level=0.0,
+                       profit=profit, currency="USD", leverage=100, company="Fake Broker Ltd", server="Fake-Demo")
+
+
+def order_calc_margin(action, symbol, volume, price):
+    return volume * symbol_info(symbol).trade_contract_size * price / account_info().leverage
 
 
 def symbols_get(group=None):

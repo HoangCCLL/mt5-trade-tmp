@@ -16,7 +16,8 @@ class State:
         self.ex, self.wallet, self.available, self.margin = ex, 0.0, 0.0, 0.0
         self.forced_asset = os.environ.get("BINANCE_ASSET") or None   # margin asset to report; default: the one with money in it
         self.asset = self.forced_asset
-        self.positions: dict[str, dict] = {}   # symbol -> {amt, entry, mark, upnl, leverage}
+        self.positions: dict[str, dict] = {}   # symbol -> {amt, entry, mark, upnl, leverage, liq}
+        self.funding: dict[str, dict] = {}     # symbol -> {rate, next, mark} from the markPrice stream of subscribed symbols
         self.orders: dict[int, dict] = {}      # NEW orders
         self.connected = False
 
@@ -28,7 +29,8 @@ class State:
         if bal:
             self.wallet, self.available = _f(bal["balance"]), _f(bal["availableBalance"])
         self.positions = {p["symbol"]: {"amt": _f(p["positionAmt"]), "entry": _f(p["entryPrice"]), "mark": _f(p.get("markPrice")),
-                                        "upnl": _f(p["unRealizedProfit"]), "leverage": int(_f(p.get("leverage")) or 0)}
+                                        "upnl": _f(p["unRealizedProfit"]), "leverage": int(_f(p.get("leverage")) or 0),
+                                        "liq": _f(p.get("liquidationPrice"))}   # ponytail: liq refreshes with reconcile (30 s); debounce a reconcile after fills if traders need it sooner
                           for p in await self.ex.positions() if _f(p["positionAmt"])}
         self.margin = sum(_f(p.get("initialMargin")) for p in await self.ex.positions())
         self.orders = {o["orderId"]: o for o in await self.ex.open_orders()}
@@ -43,7 +45,7 @@ class State:
             for p in ev["a"].get("P", []):
                 amt = _f(p["pa"])
                 if amt:
-                    cur = self.positions.setdefault(p["s"], {"amt": 0, "entry": 0, "mark": 0, "upnl": 0, "leverage": 0})
+                    cur = self.positions.setdefault(p["s"], {"amt": 0, "entry": 0, "mark": 0, "upnl": 0, "leverage": 0, "liq": 0})
                     cur.update(amt=amt, entry=_f(p["ep"]), upnl=_f(p.get("up")))
                 else:
                     self.positions.pop(p["s"], None)
@@ -72,13 +74,14 @@ class State:
         return {
             "account": {"login": self.ex.key[:6], "server": "binance-futures" + ("-testnet" if getattr(self.ex, "testnet", False) else ""),
                         "currency": self.asset or "USDT", "balance": self.wallet, "equity": self.wallet + upnl, "margin": self.margin,
-                        "margin_free": self.available, "profit": upnl},
+                        "margin_free": self.available, "profit": upnl, "used_weight": getattr(self.ex, "used_weight", 0)},
             "positions": [{"ticket": s, "symbol": s, "type": 0 if p["amt"] > 0 else 1, "volume": abs(p["amt"]), "price_open": p["entry"],
                            "price_current": p["mark"], "profit": p["upnl"], "sl": algos.get(s, {}).get("sl"), "tp": algos.get(s, {}).get("tp"),
-                           "magic": 0, "leverage": p["leverage"]} for s, p in sorted(self.positions.items())],
+                           "magic": 0, "leverage": p["leverage"], "liquidation": p.get("liq") or None} for s, p in sorted(self.positions.items())],
             "orders": [{"order": o["orderId"], "symbol": o["symbol"], "side": o["side"].lower(), "type": o["type"], "price": _f(o["price"]),
                         "stop": _f(o.get("stopPrice")), "qty": _f(o["origQty"]), "filled": _f(o["executedQty"]), "status": o["status"],
                         "client": o.get("clientOrderId")} for o in sorted(self.orders.values(), key=lambda o: o["orderId"])],
+            "funding": self.funding,
             "connected": self.connected,
         }
 
@@ -126,7 +129,10 @@ async def run(url, token, ex, state_period=0.25, reconcile_period=30.0):
 
     async def tick_loop(symbols):
         try:
-            async for t in ex.book_ticker(sorted(symbols)):
+            async for t in ex.book_ticker(sorted(symbols), mark=True):
+                if t.get("e") == "markPriceUpdate":
+                    st.funding[t["s"]] = {"rate": _f(t.get("r")), "next": t.get("T"), "mark": _f(t.get("p"))}
+                    continue
                 link.emit("tick", {"symbol": t["s"], "bid": _f(t["b"]), "ask": _f(t["a"]), "time_msc": t.get("E")})
         except asyncio.CancelledError:
             raise
@@ -147,6 +153,8 @@ async def run(url, token, ex, state_period=0.25, reconcile_period=30.0):
             subscribed.update(syms); restart_ticks()
         elif msg["type"] == "unsubscribe":
             subscribed.difference_update(syms); restart_ticks()
+            for s in syms:
+                st.funding.pop(s, None)
 
     async def state_loop():
         while True:

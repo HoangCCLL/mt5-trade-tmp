@@ -34,11 +34,12 @@ Mode vị thế: one-way (`positionSide=BOTH`). Hedge mode không hỗ trợ ở
 ```json
 {"account": {"login": "<api key 6 ký tự đầu>", "server": "binance-futures[-testnet]", "currency": "USDT",
              "balance": wallet, "equity": wallet + uPnL, "margin": initialMargin, "margin_free": availableBalance,
-             "profit": uPnL},
+             "profit": uPnL, "used_weight": X-MBX-USED-WEIGHT-1M của REST call cuối},
  "positions": [{"ticket": "BTCUSDT", "symbol": "BTCUSDT", "type": 0|1, "volume": |amt|, "price_open": entry,
                 "price_current": mark, "profit": uPnL, "sl": stop của STOP_MARKET closePosition hoặc null,
-                "tp": ..., "magic": 0, "leverage": n}],
+                "tp": ..., "magic": 0, "leverage": n, "liquidation": liquidationPrice hoặc null (chỉ cập nhật ở reconcile 30 s)}],
  "orders": [{"order": id, "symbol", "side", "type", "price", "stop": stopPrice, "qty", "filled", "status", "client": clientOrderId}],
+ "funding": {"BTCUSDT": {"rate": r, "next": T ms, "mark": p}},   // chỉ symbol đang được subscribe; từ stream markPrice@1s cùng socket với bookTicker
  "connected": true}
 ```
 `ticket` của position là symbol (Binance không có ticket), nên route `/positions/{ticket}/close` nhận chuỗi.
